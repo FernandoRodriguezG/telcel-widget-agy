@@ -11,6 +11,8 @@ struct MiTelcelApp: App {
 }
 
 struct ContentView: View {
+    @AppStorage("telcel_phone", store: TelcelNetworkService.sharedDefaults) private var phone = ""
+    @AppStorage("telcel_pass", store: TelcelNetworkService.sharedDefaults) private var password = ""
     @State private var entry: TelcelUsageEntry = .sample
     @State private var isLoading = false
 
@@ -18,29 +20,9 @@ struct ContentView: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 20) {
-                    // Vista previa estilo Widget Small
-                    VStack(alignment: .leading, spacing: 6) {
-                        HStack {
-                            Text("Mi Telcel")
-                                .font(.system(size: 13, weight: .bold))
-                                .foregroundStyle(Color(red: 0.56, green: 0.82, blue: 0.31))
-                            Spacer()
-                            Text(entry.validityLabel)
-                                .font(.system(size: 10))
-                                .foregroundStyle(.secondary)
-                        }
-                        Text(String(format: "%.2f GB", entry.remainingGB))
-                            .font(.system(size: 26, weight: .bold))
-                            .foregroundStyle(.white)
-                        Text(entry.consumedFormatted)
-                            .font(.system(size: 12))
-                            .foregroundStyle(.secondary)
-                        Text(entry.totalLabel)
-                            .font(.system(size: 12))
-                            .foregroundStyle(.secondary)
-                        ProgressView(value: entry.usageRatio)
-                            .tint(Color(red: 0.56, green: 0.82, blue: 0.31))
-                            .padding(.vertical, 4)
+                    VStack(alignment: .leading, spacing: 0) {
+                        MiTelcelWidgetCardContent(entry: entry)
+                        Spacer(minLength: 8)
                         Text("\(entry.percentUsed)% usado • ⏱️ \(entry.updatedAtString)\(entry.isCached ? " ☁️" : "")")
                             .font(.system(size: 11))
                             .foregroundStyle(.secondary)
@@ -50,6 +32,17 @@ struct ContentView: View {
                     .background(Color(red: 0.07, green: 0.07, blue: 0.07))
                     .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
                     .shadow(radius: 8)
+
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Cuenta Mi Telcel")
+                            .font(.headline)
+                        TextField("Número a 10 dígitos", text: $phone)
+                            .keyboardType(.numberPad)
+                            .textFieldStyle(.roundedBorder)
+                        SecureField("Contraseña Mi Telcel", text: $password)
+                            .textFieldStyle(.roundedBorder)
+                    }
+                    .padding(.horizontal)
 
                     // Desglose de Bolsas (Plan Base + Datos Promocionales)
                     VStack(alignment: .leading, spacing: 12) {
@@ -80,7 +73,7 @@ struct ContentView: View {
                     Button {
                         Task {
                             isLoading = true
-                            entry = await TelcelNetworkService.shared.fetchUsage()
+                            entry = await TelcelNetworkService.shared.fetchUsage(forceRefresh: true)
                             WidgetCenter.shared.reloadAllTimelines()
                             isLoading = false
                         }

@@ -8,22 +8,46 @@
  */
 
 const CONFIG = {
-  phone: "5512345678", // Número Telcel a 10 dígitos (o inyectar desde Keychain)
-  password: "TU_PASSWORD", // Contraseña de Mi Telcel
-  planType: "postpago", // "postpago" (Plan de Renta) o "prepago" (Amigo)
+  phone: "", // Se guarda de forma segura en el Keychain de iOS al abrir el script
+  password: "",
   useMockData: false, // Cambiar a true para probar el diseño visual de inmediato
   cacheFileName: "mitelcel_usage_cache.json"
 };
 
 const COLORS = {
   bg: new Color("#111111"),
-  brandGreen: new Color("#8FD14F"),
+  pillBg: new Color("#242428"),
+  brandGreen: new Color("#32D74B"),
+  spentRed: new Color("#FF453A"),
   white: new Color("#FFFFFF"),
   subtitleGray: new Color("#98989F"),
-  trackGray: new Color("#3A3A3C"),
-  warnYellow: new Color("#FCC934"),
-  alertRed: new Color("#D93025")
+  trackGray: new Color("#2C2C2E"),
+  warnYellow: new Color("#FFD60A"),
+  alertRed: new Color("#FF453A")
 };
+
+async function getCredentials() {
+  let phone = Keychain.contains("TELCEL_PHONE") ? Keychain.get("TELCEL_PHONE") : CONFIG.phone;
+  let password = Keychain.contains("TELCEL_PASS") ? Keychain.get("TELCEL_PASS") : CONFIG.password;
+  if ((!phone || phone === "5512345678" || !password || password === "TU_PASSWORD") && !config.runsInWidget) {
+    const alert = new Alert();
+    alert.title = "Configurar Mi Telcel";
+    alert.message = "Tus credenciales se guardarán en el Keychain de iOS.";
+    alert.addTextField("Número a 10 dígitos", phone || "");
+    alert.addSecureTextField("Contraseña Mi Telcel", "");
+    alert.addAction("Guardar");
+    alert.addCancelAction("Cancelar");
+    if ((await alert.presentAlert()) === 0) {
+      phone = alert.textFieldValue(0).trim();
+      password = alert.textFieldValue(1);
+      if (phone && password) {
+        Keychain.set("TELCEL_PHONE", phone);
+        Keychain.set("TELCEL_PASS", password);
+      }
+    }
+  }
+  return { phone, password };
+}
 
 async function main() {
   let usageData = null;
@@ -64,9 +88,13 @@ async function main() {
  * consulta el flujo Home (Wave B2F) y revoca el token SSO al finalizar.
  */
 async function fetchTelcelData() {
+  const { phone, password } = await getCredentials();
+  if (!phone || !password) {
+    throw new Error("Configura tus credenciales abriendo el script en Scriptable.");
+  }
   const ua = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1";
   const mtlBasic = "bXRwc2VydmljZXM6NyQ4N3JmRnN3ZSQyMV8=";
-  const passClean = CONFIG.password.replace(/\s+/g, "");
+  const passClean = password.replace(/\s+/g, "");
   const pB64 = Data.fromString(passClean).toBase64String();
 
   // 1. Login SSO (wbl.telcel-id.com:8443/login -> redirige 302 a /Auth y devuelve { token })
@@ -80,13 +108,13 @@ async function fetchTelcelData() {
     "User-Agent": ua
   };
   loginReq.body = [
-    `username=${encodeURIComponent(CONFIG.phone)}`,
-    `telcel-pass=${encodeURIComponent(CONFIG.password)}`,
+    `username=${encodeURIComponent(phone)}`,
+    `telcel-pass=${encodeURIComponent(password)}`,
     "sitedomain=https://www.mitelcel.com",
     "CCode=52",
     "Type=MSISDN",
     "Invocation=iFrame",
-    `MSISDN=${encodeURIComponent(CONFIG.phone)}`,
+    `MSISDN=${encodeURIComponent(phone)}`,
     "Source=",
     `pB64=${encodeURIComponent(pB64)}`,
     "url=https://wbl.telcel-id.com:8443"
@@ -100,7 +128,7 @@ async function fetchTelcelData() {
 
   try {
     // 2. Intercambio de Token SSO -> Token B2F
-    const tokenUrl = `https://mi-telcel.smapps.mx/security/1.0.0/v2/token?user=${encodeURIComponent(CONFIG.phone)}&token=${encodeURIComponent(ssoToken)}`;
+    const tokenUrl = `https://mi-telcel.smapps.mx/security/1.0.0/v2/token?user=${encodeURIComponent(phone)}&token=${encodeURIComponent(ssoToken)}`;
     const tokenReq = new Request(tokenUrl);
     tokenReq.method = "GET";
     tokenReq.headers = {
@@ -125,7 +153,7 @@ async function fetchTelcelData() {
     }
 
     // 3. Consulta de Consumo en Vivo (Wave B2F Home Flow)
-    const homeReq = new Request(`https://api.journeys.telcel.wavebybemobi.com/api/components/flow/home?externalCode=52${encodeURIComponent(CONFIG.phone)}`);
+    const homeReq = new Request(`https://api.journeys.telcel.wavebybemobi.com/api/components/flow/home?externalCode=52${encodeURIComponent(phone)}`);
     homeReq.method = "GET";
     homeReq.headers = {
       "Authorization": `Bearer ${b2fToken}`,
@@ -174,11 +202,13 @@ function parseTelcelResponse(payload) {
     if (Array.isArray(node.children)) node.children.forEach(walk);
     if (node.blocks) walk(node.blocks);
   })(payload);
+  suffixes.sort();
 
   const toMB = (val, unit) => {
     const n = parseFloat(val);
     if (!Number.isFinite(n)) return null;
-    return String(unit || "MB").toUpperCase() === "GB" ? n * 1000 : n;
+    const u = String(unit || "MB").toUpperCase();
+    return u === "GB" ? n * 1000 : u === "KB" ? n / 1024 : n;
   };
 
   const parseBucket = (sfx) => {
@@ -217,9 +247,11 @@ function parseTelcelResponse(payload) {
     };
   };
 
-  const buckets = (suffixes.length ? suffixes : ["0-0-0"]).map(parseBucket);
+  const buckets = (suffixes.length ? suffixes : ["0-0-0"])
+    .map(parseBucket)
+    .filter(b => b.totalMB > 0 || b.availableMB > 0);
   const planBucket = buckets.find(b => b.id === "0-0-0") || buckets[0];
-  const promoBuckets = buckets.filter(b => b.id !== planBucket.id);
+  const promoBuckets = buckets.filter(b => b.id !== planBucket?.id);
 
   const consumedMB = buckets.reduce((sum, b) => sum + b.consumedMB, 0);
   const totalMB = buckets.reduce((sum, b) => sum + b.totalMB, 0);
@@ -243,7 +275,7 @@ function parseTelcelResponse(payload) {
     daysLeft,
     cutoffDate,
     planName,
-    plan: planBucket,
+    plan: planBucket || null,
     promo: promoBuckets[0] || null,
     buckets,
     updatedAt: `${hh}:${mm}`,
@@ -257,7 +289,7 @@ function parseTelcelResponse(payload) {
 function createWidget(data) {
   const w = new ListWidget();
   w.backgroundColor = COLORS.bg;
-  w.setPadding(14, 15, 14, 15);
+  w.setPadding(11, 13, 10, 13);
   w.url = "https://www.mitelcel.com/mitelcel/login";
 
   if (!data) {
@@ -270,121 +302,160 @@ function createWidget(data) {
   const remainingMB = Math.max(0, data.availableMB ?? (data.totalMB - data.consumedMB));
   const remainingGB = (remainingMB / 1000).toFixed(2);
   const totalGB = (data.totalMB / 1000).toFixed(1);
-  const ratio = data.totalMB > 0 ? Math.min(1, data.consumedMB / data.totalMB) : 0;
-  const percentUsed = Math.max(1, Math.round(ratio * 100));
+  const ratio = data.totalMB > 0 ? Math.min(1, Math.max(0, data.consumedMB / data.totalMB)) : 0;
+  const percentUsed = Math.round(ratio * 100);
+  const days = Math.max(1, data.daysLeft ?? 1);
+  const dailyMB = remainingMB / days;
+  const dailyAllowance = dailyMB >= 1000
+    ? `${(dailyMB / 1000).toFixed(2)} GB/d`
+    : `${Math.round(dailyMB)} MB/d`;
+  const spentShort = data.consumedMB < 1000
+    ? `${Math.round(data.consumedMB)} MB`
+    : `${(data.consumedMB / 1000).toFixed(2)} GB`;
+  const shortCutoff = String(data.cutoffDate || "").replace(/\s+de\s+([a-záéíóú]{3})[a-záéíóú]*/i, " $1");
 
-  const consumedFormatted = data.consumedMB < 1000
-    ? `${Math.round(data.consumedMB)} MB consumidos`
-    : `${(data.consumedMB / 1000).toFixed(2)} GB consumidos`;
-
-  // Color dinámico según porcentaje de uso
-  let accentColor = COLORS.brandGreen;
-  if (percentUsed >= 85) accentColor = COLORS.alertRed;
-  else if (percentUsed >= 65) accentColor = COLORS.warnYellow;
-
-  // 1. Fila Superior: "Mi Telcel" + "Faltan X días"
+  // 1. Header: Marca + Corte a la izquierda, Píldora prominente de Días Restantes a la derecha
   const headerStack = w.addStack();
   headerStack.layoutHorizontally();
   headerStack.centerAlignContent();
 
-  const brandTxt = headerStack.addText("Mi Telcel");
-  brandTxt.font = Font.boldSystemFont(13);
-  brandTxt.textColor = accentColor;
+  const titleCol = headerStack.addStack();
+  titleCol.layoutVertically();
+  const brandTxt = titleCol.addText("Mi Telcel");
+  brandTxt.font = Font.boldSystemFont(11);
+  brandTxt.textColor = COLORS.white;
+  if (shortCutoff) {
+    const cutoffTxt = titleCol.addText(`Corte ${shortCutoff}`);
+    cutoffTxt.font = Font.regularSystemFont(9.5);
+    cutoffTxt.textColor = COLORS.subtitleGray;
+  }
 
   headerStack.addSpacer();
 
-  const headerRight = data.cutoffDate
-    ? `Faltan ${data.daysLeft}d (${data.cutoffDate})`
-    : `Faltan ${data.daysLeft} días`;
-  const daysTxt = headerStack.addText(headerRight);
-  daysTxt.font = Font.regularSystemFont(10);
-  daysTxt.textColor = COLORS.subtitleGray;
-  daysTxt.lineLimit = 1;
-  daysTxt.minimumScaleFactor = 0.75;
-
-  w.addSpacer(8);
-
-  // 2. Métrica Principal: "5.47 GB" (Plan + Promo disponibles)
-  const mainValueTxt = w.addText(`${remainingGB} GB`);
-  mainValueTxt.font = Font.boldSystemFont(26);
-  mainValueTxt.textColor = COLORS.white;
-  mainValueTxt.minimumScaleFactor = 0.75;
+  const daysPill = headerStack.addStack();
+  daysPill.backgroundColor = COLORS.pillBg;
+  daysPill.cornerRadius = 7;
+  daysPill.setPadding(3, 7, 3, 7);
+  daysPill.centerAlignContent();
+  const daysColor = data.daysLeft <= 2 ? COLORS.alertRed : data.daysLeft <= 5 ? COLORS.warnYellow : COLORS.white;
+  const daysTxt = daysPill.addText(`${data.daysLeft} ${data.daysLeft === 1 ? "día" : "días"}`);
+  daysTxt.font = Font.boldSystemFont(13);
+  daysTxt.textColor = daysColor;
 
   w.addSpacer(4);
 
-  // 3. Subtítulo de dos líneas: "9.50 GB consumidos" / "de 15.0 GB (Plan + Promo)"
-  const subLine1 = w.addText(consumedFormatted);
-  subLine1.font = Font.regularSystemFont(12);
-  subLine1.textColor = COLORS.subtitleGray;
+  // 2. Semicírculo (Rojo = gastado, Verde = disponible) + GB Libres al centro
+  const gaugeImg = w.addImage(drawSemicircleGauge(ratio, `${remainingGB} GB`, `libres de ${totalGB} GB`));
+  gaugeImg.resizable = true;
+  gaugeImg.imageSize = new Size(134, 68);
+  gaugeImg.centerAlignImage();
 
-  const promoSuffix = data.promo ? " (Plan+Promo)" : "";
-  const subLine2 = w.addText(`de ${totalGB} GB${promoSuffix}`);
-  subLine2.font = Font.regularSystemFont(12);
-  subLine2.textColor = COLORS.subtitleGray;
+  w.addSpacer(4);
 
-  w.addSpacer(12);
+  // 3. Fila de lectura inmediata: Gastado (Rojo) vs Presupuesto diario (Verde)
+  const statsRow = w.addStack();
+  statsRow.layoutHorizontally();
+  statsRow.centerAlignContent();
 
-  // 4. Barra de Progreso Horizontal con indicador circular mediante DrawContext
-  const barImage = drawProgressBar(ratio, accentColor);
-  const barImgWidget = w.addImage(barImage);
-  barImgWidget.resizable = true;
-  barImgWidget.imageSize = new Size(135, 10);
+  const spentTxt = statsRow.addText(`● ${spentShort} (${percentUsed}%)`);
+  spentTxt.font = Font.semiboldSystemFont(10);
+  spentTxt.textColor = COLORS.spentRed;
+  spentTxt.lineLimit = 1;
+  spentTxt.minimumScaleFactor = 0.75;
 
-  w.addSpacer(8);
+  statsRow.addSpacer();
 
-  // 5. Pie de Página: "2% usado • ⏱️ 10:09"
+  const paceTxt = statsRow.addText(`● ${dailyAllowance}`);
+  paceTxt.font = Font.semiboldSystemFont(10);
+  paceTxt.textColor = COLORS.brandGreen;
+  paceTxt.lineLimit = 1;
+  paceTxt.minimumScaleFactor = 0.75;
+
+  w.addSpacer(3);
+
+  // 4. Pie de página: Bolsas incluidas + hora de actualización
   const footerStack = w.addStack();
   footerStack.layoutHorizontally();
   footerStack.centerAlignContent();
 
+  const promoLabel = data.promo ? "Plan+Promo" : (data.planName || "Plan");
   const cacheIndicator = data.fromCache ? " ☁️" : "";
-  const footerTxt = footerStack.addText(`${percentUsed}% usado • ⏱️ ${data.updatedAt}${cacheIndicator}`);
-  footerTxt.font = Font.regularSystemFont(11);
+  const footerTxt = footerStack.addText(`${promoLabel} • ⏱ ${data.updatedAt}${cacheIndicator}`);
+  footerTxt.font = Font.regularSystemFont(9.5);
   footerTxt.textColor = COLORS.subtitleGray;
+  footerTxt.lineLimit = 1;
+  footerTxt.minimumScaleFactor = 0.8;
 
   return w;
 }
 
 /**
- * Dibuja la barra gris redondeada y el punto indicador verde lima usando DrawContext
+ * Dibuja un arco grueso con extremos redondeados en DrawContext (compatible con Path de Scriptable)
  */
-function drawProgressBar(progressRatio, indicatorColor) {
-  const width = 400;
-  const height = 28;
-  const trackHeight = 20;
-  const trackY = (height - trackHeight) / 2;
-  const radius = trackHeight / 2;
+function drawArc(ctx, cx, cy, r, startAngle, endAngle, thickness, color) {
+  if (endAngle - startAngle <= 0.005) return;
+  const path = new Path();
+  const steps = Math.max(12, Math.ceil((endAngle - startAngle) * 40));
+  for (let i = 0; i <= steps; i++) {
+    const a = startAngle + ((endAngle - startAngle) * i) / steps;
+    const pt = new Point(cx + r * Math.cos(a), cy + r * Math.sin(a));
+    if (i === 0) path.move(pt);
+    else path.addLine(pt);
+  }
+  ctx.addPath(path);
+  ctx.setStrokeColor(color);
+  ctx.setLineWidth(thickness);
+  ctx.strokePath();
+
+  ctx.setFillColor(color);
+  const half = thickness / 2;
+  for (const a of [startAngle, endAngle]) {
+    ctx.fillEllipse(new Rect(cx + r * Math.cos(a) - half, cy + r * Math.sin(a) - half, thickness, thickness));
+  }
+}
+
+/**
+ * Dibuja el medidor semicircular con lo gastado en rojo (izquierda) y lo disponible en verde (derecha)
+ */
+function drawSemicircleGauge(spentRatio, mainLabel, subLabel) {
+  const width = 360;
+  const height = 182;
+  const cx = width / 2;
+  const cy = 152;
+  const r = 124;
+  const thickness = 24;
 
   const ctx = new DrawContext();
   ctx.size = new Size(width, height);
   ctx.opaque = false;
   ctx.respectScreenScale = true;
 
-  // Riel de fondo gris oscuro
-  const trackPath = new Path();
-  trackPath.addRoundedRect(new Rect(0, trackY, width, trackHeight), radius, radius);
-  ctx.addPath(trackPath);
-  ctx.setFillColor(COLORS.trackGray);
-  ctx.fillPath();
+  // Riel completo semicircular (de PI a 2*PI)
+  drawArc(ctx, cx, cy, r, Math.PI, 2 * Math.PI, thickness, COLORS.trackGray);
 
-  // Relleno de progreso y círculo indicador
-  const dotDiameter = trackHeight;
-  const maxTravel = width - dotDiameter;
-  const dotX = Math.max(0, Math.min(maxTravel, maxTravel * progressRatio));
+  const clamped = Math.max(0, Math.min(1, spentRatio));
+  const splitAngle = Math.PI + clamped * Math.PI;
+  const gap = clamped > 0.02 && clamped < 0.98 ? 0.055 : 0;
 
-  if (dotX > 0) {
-    const fillPath = new Path();
-    fillPath.addRoundedRect(new Rect(0, trackY, dotX + dotDiameter, trackHeight), radius, radius);
-    ctx.addPath(fillPath);
-    ctx.setFillColor(indicatorColor);
-    ctx.fillPath();
-  } else {
-    const circlePath = new Path();
-    circlePath.addEllipse(new Rect(0, trackY, dotDiameter, dotDiameter));
-    ctx.addPath(circlePath);
-    ctx.setFillColor(indicatorColor);
-    ctx.fillPath();
+  // Segmento izquierdo: Gastado en Rojo
+  if (clamped > 0.005) {
+    drawArc(ctx, cx, cy, r, Math.PI, Math.max(Math.PI + 0.01, splitAngle - gap), thickness, COLORS.spentRed);
   }
+  // Segmento derecho: Disponible en Verde
+  if (clamped < 0.995) {
+    drawArc(ctx, cx, cy, r, Math.min(2 * Math.PI - 0.01, splitAngle + gap), 2 * Math.PI, thickness, COLORS.brandGreen);
+  }
+
+  // Texto principal centrado dentro del arco ("5.47 GB")
+  ctx.setTextAlignedCenter();
+  ctx.setFont(Font.boldSystemFont(50));
+  ctx.setTextColor(COLORS.white);
+  ctx.drawTextInRect(mainLabel, new Rect(30, 68, width - 60, 58));
+
+  // Subtítulo centrado debajo ("libres de 15.0 GB")
+  ctx.setFont(Font.mediumSystemFont(22));
+  ctx.setTextColor(COLORS.subtitleGray);
+  ctx.drawTextInRect(subLabel, new Rect(30, 126, width - 60, 30));
 
   return ctx.getImage();
 }
@@ -400,15 +471,21 @@ function saveCache(data) {
 }
 
 function loadCache() {
-  const fm = FileManager.local();
-  const path = getCachePath();
-  if (fm.fileExists(path)) {
-    const raw = fm.readString(path);
-    const parsed = JSON.parse(raw);
-    parsed.fromCache = true;
-    return parsed;
-  }
+  try {
+    const fm = FileManager.local();
+    const path = getCachePath();
+    if (fm.fileExists(path)) {
+      const parsed = JSON.parse(fm.readString(path));
+      parsed.fromCache = true;
+      return parsed;
+    }
+  } catch (_) {}
   return null;
 }
 
-await main();
+if (typeof Script !== "undefined") {
+  main();
+}
+if (typeof module !== "undefined") {
+  module.exports = { parseTelcelResponse, createWidget };
+}

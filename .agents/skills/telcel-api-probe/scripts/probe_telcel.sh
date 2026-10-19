@@ -20,13 +20,17 @@ if [[ ! -f "$ENV_FILE" ]]; then
   exit 1
 fi
 
-source "$ENV_FILE"
+while IFS='=' read -r key val || [[ -n "$key" ]]; do
+  [[ "$key" =~ ^[[:space:]]*# || -z "${key//[[:space:]]/}" ]] && continue
+  key="${key//[[:space:]]/}"
+  val="$(printf '%s' "$val" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/^["'\''“]//' -e 's/["'\''”]$//')"
+  typeset -g "$key=$val"
+done < "$ENV_FILE"
 
-# Sanitizar posibles comillas tipográficas residuales
-TELCEL_PHONE="$(echo -n "${TELCEL_PHONE:-}" | tr -d '\"'\''“” ')"
-TELCEL_PASS="$(echo -n "${TELCEL_PASS:-}" | sed 's/^[“\"]//; s/[”\"]$//')"
+TELCEL_PHONE="$(printf '%s' "${TELCEL_PHONE:-}" | tr -d '[:space:]\"'\''“”')"
+TELCEL_PASS="${TELCEL_PASS:-}"
 
-if [[ "$TELCEL_PHONE" == "5512345678" || "$TELCEL_PASS" == "TuPasswordAqui" || -z "$TELCEL_PHONE" || -z "$TELCEL_PASS" ]]; then
+if [[ "$TELCEL_PHONE" == "5512345678" || "$TELCEL_PHONE" == "5500000000" || "$TELCEL_PASS" == "TU_PASSWORD" || "$TELCEL_PASS" == "tu_password_aqui" || "$TELCEL_PASS" == "TuPasswordAqui" || -z "$TELCEL_PHONE" || -z "$TELCEL_PASS" ]]; then
   echo "⚠️ Acción requerida: Edita el archivo .env con tu número Telcel y contraseña reales antes de ejecutar el probe."
   exit 2
 fi
@@ -83,6 +87,7 @@ if [[ -n "$SSO_TOKEN" && "$SSO_TOKEN" != "null" ]]; then
   echo "✅ Token SSO capturado correctamente." | tee -a "$REPORT_FILE"
 else
   echo "❌ No se obtuvo Token SSO (Detalle: ${LOGIN_ERR:-sin detalle})." | tee -a "$REPORT_FILE"
+  exit 1
 fi
 
 # 2. Intercambio de Token SSO -> Token MTL y Token B2F
@@ -108,10 +113,11 @@ echo "Token Exchange HTTP Status: $HTTP_TOKEN" | tee -a "$REPORT_FILE"
 MTL_TOKEN=$(jq -r '.tokenResponse.tokens[]? | select(.id=="token:mit") | .access_token // empty' "$ARTIFACTS_DIR/token_exchange.json" 2>/dev/null || true)
 B2F_TOKEN=$(jq -r '.tokenResponse.tokens[]? | select(.id=="token:b2f") | .access_token // empty' "$ARTIFACTS_DIR/token_exchange.json" 2>/dev/null || true)
 
-if [[ -n "$MTL_TOKEN" ]]; then
+if [[ -n "$MTL_TOKEN" && -n "$B2F_TOKEN" ]]; then
   echo "✅ Tokens MTL y B2F obtenidos correctamente." | tee -a "$REPORT_FILE"
 else
   echo "❌ Falló el intercambio de tokens MTL/B2F." | tee -a "$REPORT_FILE"
+  exit 1
 fi
 
 # 3. Validar Perfil de Línea (/users/1.0.0/v2/info/validate)

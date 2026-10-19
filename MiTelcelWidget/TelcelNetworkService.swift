@@ -39,7 +39,7 @@ public struct TelcelUsageEntry: Codable, Equatable, Sendable {
     }
 
     public var percentUsed: Int {
-        max(1, Int((usageRatio * 100.0).rounded()))
+        Int((usageRatio * 100.0).rounded())
     }
 
     public var consumedFormatted: String {
@@ -57,7 +57,8 @@ public struct TelcelUsageEntry: Codable, Equatable, Sendable {
     }
 
     public var validityLabel: String {
-        cutoffDate.isEmpty
+        if daysLeft <= 0 { return cutoffDate }
+        return cutoffDate.isEmpty
             ? "Faltan \(daysLeft) días"
             : "Faltan \(daysLeft)d (\(cutoffDate))"
     }
@@ -77,27 +78,52 @@ public struct TelcelUsageEntry: Codable, Equatable, Sendable {
         updatedAtString: "10:09",
         isCached: false
     )
+
+    public static let errorFallback = TelcelUsageEntry(
+        date: .distantPast,
+        consumedMB: 0,
+        totalMB: 0,
+        availableMB: 0,
+        daysLeft: 0,
+        cutoffDate: "Verificar cuenta",
+        planName: "Sin conexión o credenciales",
+        buckets: [],
+        updatedAtString: "--:--",
+        isCached: true
+    )
 }
 
 // MARK: - 2. Cliente de Red Autónomo (SSO + JWT + Wave B2F Home Flow)
 public actor TelcelNetworkService {
     public static let shared = TelcelNetworkService()
+    // shortcut: Personal Team signing without App Group falls back to process container, enable group.mx.mitelcel.widget in paid Apple Developer account
+    public static let appGroupId = "group.mx.mitelcel.widget"
 
-    // Configura aquí tu número a 10 dígitos y contraseña de Mi Telcel
-    private let phone = "5512345678"
-    private let password = "TU_PASSWORD"
     private let mtlBasic = "bXRwc2VydmljZXM6NyQ4N3JmRnN3ZSQyMV8="
     private let ua = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1"
     private let cacheFileName = "telcel_widget_cache.json"
 
-    public func fetchUsage() async -> TelcelUsageEntry {
+    public static var sharedDefaults: UserDefaults {
+        UserDefaults(suiteName: appGroupId) ?? .standard
+    }
+
+    public func fetchUsage(forceRefresh: Bool = false) async -> TelcelUsageEntry {
+        if !forceRefresh, let recent = loadCache(maxAge: 10) {
+            return recent
+        }
+
+        let defaults = Self.sharedDefaults
+        let env = ProcessInfo.processInfo.environment
+        let phone = (defaults.string(forKey: "telcel_phone") ?? env["TELCEL_PHONE"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let password = defaults.string(forKey: "telcel_pass") ?? env["TELCEL_PASS"] ?? ""
+
+        guard !phone.isEmpty, !password.isEmpty else {
+            return loadCache() ?? .errorFallback
+        }
+
         var ssoToken: String?
         let session = URLSession(configuration: .ephemeral)
-        defer {
-            if let token = ssoToken {
-                Task { await Self.revokeSSOToken(token, session: session) }
-            }
-        }
+        let result: TelcelUsageEntry
 
         do {
             // 1. Login SSO en wbl.telcel-id.com:8443/login
@@ -176,10 +202,15 @@ public actor TelcelNetworkService {
             let (homeData, _) = try await session.data(for: homeReq)
             let entry = try Self.parseHomeFlowJSON(homeData)
             saveCache(entry)
-            return entry
+            result = entry
         } catch {
-            return loadCache() ?? .sample
+            result = loadCache() ?? .errorFallback
         }
+
+        if let token = ssoToken {
+            await Self.revokeSSOToken(token, session: session)
+        }
+        return result
     }
 
     private static func revokeSSOToken(_ token: String, session: URLSession) async {
@@ -270,9 +301,6 @@ public actor TelcelNetworkService {
             ?? (byId["plan-details-name"]?["value"] as? String)
             ?? "Mi Telcel"
 
-        let formatter = DateFormatter()
-        formatter.dateFormat = "HH:mm"
-
         return TelcelUsageEntry(
             date: now,
             consumedMB: consumedMB,
@@ -282,13 +310,14 @@ public actor TelcelNetworkService {
             cutoffDate: cutoffDate,
             planName: planName,
             buckets: buckets,
-            updatedAtString: formatter.string(from: now),
+            updatedAtString: now.formatted(.dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits)),
             isCached: false
         )
     }
 
     private var cacheURL: URL? {
-        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first?
+        (FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: Self.appGroupId)
+            ?? FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first)?
             .appendingPathComponent(cacheFileName)
     }
 
@@ -297,14 +326,17 @@ public actor TelcelNetworkService {
         try? data.write(to: url)
     }
 
-    private func loadCache() -> TelcelUsageEntry? {
+    private func loadCache(maxAge: TimeInterval? = nil) -> TelcelUsageEntry? {
         guard let url = cacheURL,
               let data = try? Data(contentsOf: url),
               let cached = try? JSONDecoder().decode(TelcelUsageEntry.self, from: data) else {
             return nil
         }
+        if let maxAge, Date.now.timeIntervalSince(cached.date) > maxAge {
+            return nil
+        }
         return TelcelUsageEntry(
-            date: .now,
+            date: cached.date,
             consumedMB: cached.consumedMB,
             totalMB: cached.totalMB,
             availableMB: cached.availableMB,
@@ -313,7 +345,118 @@ public actor TelcelNetworkService {
             planName: cached.planName,
             buckets: cached.buckets,
             updatedAtString: cached.updatedAtString,
-            isCached: true
+            isCached: maxAge == nil
         )
     }
 }
+
+#if canImport(SwiftUI)
+import SwiftUI
+
+public struct MiTelcelWidgetCardContent: View {
+    public let entry: TelcelUsageEntry
+
+    public init(entry: TelcelUsageEntry) {
+        self.entry = entry
+    }
+
+    private let brandGreen = Color(red: 0.20, green: 0.84, blue: 0.29)
+    private let spentRed = Color(red: 1.00, green: 0.27, blue: 0.23)
+    private let warnYellow = Color(red: 1.00, green: 0.84, blue: 0.04)
+    public let subtitleGray = Color(red: 0.60, green: 0.60, blue: 0.62)
+    private let trackGray = Color(red: 0.17, green: 0.17, blue: 0.18)
+    private let pillBg = Color(red: 0.14, green: 0.14, blue: 0.16)
+
+    private var daysColor: Color {
+        if entry.daysLeft <= 2 { return spentRed }
+        if entry.daysLeft <= 5 { return warnYellow }
+        return .white
+    }
+
+    private var dailyAllowanceText: String {
+        let dailyMB = max(0, entry.availableMB) / Double(max(1, entry.daysLeft))
+        return dailyMB >= 1000
+            ? String(format: "%.2f GB/d", dailyMB / 1000.0)
+            : String(format: "%.0f MB/d", dailyMB)
+    }
+
+    private var spentShortText: String {
+        entry.consumedMB < 1000
+            ? String(format: "%.0f MB", entry.consumedMB)
+            : String(format: "%.2f GB", entry.consumedMB / 1000.0)
+    }
+
+    public var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .center) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Mi Telcel")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(.white)
+                    if !entry.cutoffDate.isEmpty {
+                        Text("Corte \(entry.cutoffDate)")
+                            .font(.system(size: 9.5, weight: .regular))
+                            .foregroundStyle(subtitleGray)
+                            .lineLimit(1)
+                    }
+                }
+                Spacer()
+                Text("\(entry.daysLeft) \(entry.daysLeft == 1 ? "día" : "días")")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(daysColor)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3)
+                    .background(pillBg, in: RoundedRectangle(cornerRadius: 7))
+            }
+
+            ZStack(alignment: .bottom) {
+                Circle()
+                    .trim(from: 0.5, to: 1.0)
+                    .stroke(trackGray, style: StrokeStyle(lineWidth: 10, lineCap: .round))
+                    .frame(width: 116, height: 116)
+
+                if entry.usageRatio > 0.005 {
+                    Circle()
+                        .trim(from: 0.5, to: 0.5 + max(0.01, entry.usageRatio * 0.5 - 0.015))
+                        .stroke(spentRed, style: StrokeStyle(lineWidth: 10, lineCap: .round))
+                        .frame(width: 116, height: 116)
+                }
+
+                if entry.usageRatio < 0.995 {
+                    Circle()
+                        .trim(from: 0.5 + min(0.49, entry.usageRatio * 0.5 + 0.015), to: 1.0)
+                        .stroke(brandGreen, style: StrokeStyle(lineWidth: 10, lineCap: .round))
+                        .frame(width: 116, height: 116)
+                }
+
+                VStack(spacing: 1) {
+                    Text(String(format: "%.2f GB", entry.remainingGB))
+                        .font(.system(size: 19, weight: .bold))
+                        .foregroundStyle(.white)
+                        .minimumScaleFactor(0.75)
+                        .lineLimit(1)
+                    Text(String(format: "libres de %.1f GB", entry.totalGB))
+                        .font(.system(size: 9.5, weight: .medium))
+                        .foregroundStyle(subtitleGray)
+                        .lineLimit(1)
+                }
+                .padding(.bottom, 6)
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 64, alignment: .top)
+            .clipped()
+
+            HStack {
+                Text("● \(spentShortText) (\(entry.percentUsed)%)")
+                    .foregroundStyle(spentRed)
+                Spacer()
+                Text("● \(dailyAllowanceText)")
+                    .foregroundStyle(brandGreen)
+            }
+            .font(.system(size: 9.5, weight: .semibold))
+            .lineLimit(1)
+            .minimumScaleFactor(0.75)
+        }
+    }
+}
+#endif
