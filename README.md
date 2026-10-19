@@ -12,7 +12,7 @@ Widget para iOS que muestra en tiempo real los **GB disponibles combinados (Plan
 
 - **Suma inteligente de bolsas:** Combina automáticamente los datos del Plan Base (`0-0-0`) y los Datos Promocionales (`0-1-0`).
 - **Fecha de corte y vigencia:** Muestra los días restantes y la fecha de corte exacta reportada por Telcel.
-- **Barra de consumo visual:** Barra de progreso con gradiente y porcentaje usado (`%`).
+- **Medidor semicircular y presupuesto diario:** Arco bicolor (rojo gastado vs. verde disponible), porcentaje usado (`%`) y cálculo de ritmo diario disponible (`MB/d` o `GB/d`).
 - **Almacenamiento seguro:** Las credenciales nunca se guardan en texto plano; se almacenan en el **Keychain de iOS**.
 - **Caché y desconexión segura:** Guarda la última consulta en caché para carga instantánea y revoca el token SSO de Telcel al terminar para evitar bloqueos por sesiones concurrentes.
 - **Dos métodos de uso:**
