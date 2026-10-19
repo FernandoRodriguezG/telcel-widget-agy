@@ -345,7 +345,8 @@ function createWidget(data) {
   w.addSpacer(4);
 
   // 2. Semicírculo (Rojo = gastado, Verde = disponible) + GB Libres al centro
-  const gaugeImg = w.addImage(drawSemicircleGauge(ratio, `${remainingGB} GB`, `libres de ${totalGB} GB`));
+  const gaugeRatio = data.totalMB > 0 ? ratio : null;
+  const gaugeImg = w.addImage(drawSemicircleGauge(gaugeRatio, `${remainingGB} GB`, `libres de ${totalGB} GB`));
   gaugeImg.resizable = true;
   gaugeImg.imageSize = new Size(134, 68);
   gaugeImg.centerAlignImage();
@@ -433,17 +434,19 @@ function drawSemicircleGauge(spentRatio, mainLabel, subLabel) {
   // Riel completo semicircular (de PI a 2*PI)
   drawArc(ctx, cx, cy, r, Math.PI, 2 * Math.PI, thickness, COLORS.trackGray);
 
-  const clamped = Math.max(0, Math.min(1, spentRatio));
-  const splitAngle = Math.PI + clamped * Math.PI;
-  const gap = clamped > 0.02 && clamped < 0.98 ? 0.055 : 0;
+  if (spentRatio !== null && Number.isFinite(spentRatio)) {
+    const clamped = Math.max(0, Math.min(1, spentRatio));
+    const splitAngle = Math.PI + clamped * Math.PI;
+    const gap = clamped > 0.04 && clamped < 0.96 ? 0.11 : 0;
 
-  // Segmento izquierdo: Gastado en Rojo
-  if (clamped > 0.005) {
-    drawArc(ctx, cx, cy, r, Math.PI, Math.max(Math.PI + 0.01, splitAngle - gap), thickness, COLORS.spentRed);
-  }
-  // Segmento derecho: Disponible en Verde
-  if (clamped < 0.995) {
-    drawArc(ctx, cx, cy, r, Math.min(2 * Math.PI - 0.01, splitAngle + gap), 2 * Math.PI, thickness, COLORS.brandGreen);
+    // Segmento izquierdo: Gastado en Rojo
+    if (clamped > 0.005) {
+      drawArc(ctx, cx, cy, r, Math.PI, Math.max(Math.PI + 0.01, splitAngle - gap), thickness, COLORS.spentRed);
+    }
+    // Segmento derecho: Disponible en Verde
+    if (clamped < 0.995) {
+      drawArc(ctx, cx, cy, r, Math.min(2 * Math.PI - 0.01, splitAngle + gap), 2 * Math.PI, thickness, COLORS.brandGreen);
+    }
   }
 
   // Texto principal centrado dentro del arco ("5.47 GB")

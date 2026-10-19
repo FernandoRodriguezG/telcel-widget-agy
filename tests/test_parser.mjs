@@ -109,7 +109,10 @@ const wZero = createWidget({ ...jsRes, consumedMB: 0, availableMB: 15000, daysLe
 assert(wZero.texts.includes("1 día"));
 assert.equal(wZero.images[0].arcs, 2); // track + green left only
 
-// 2. Test Swift parser with the same fixture + 0% usage & errorFallback header check
+const wEmpty = createWidget({ ...jsRes, totalMB: 0, consumedMB: 0, availableMB: 0 });
+assert.equal(wEmpty.images[0].arcs, 1); // track only when totalMB == 0
+
+// 2. Test Swift parser with the same fixture + shortCutoffDate & errorFallback check
 const swiftSource = readFileSync("MiTelcelWidget/TelcelNetworkService.swift", "utf8");
 const swiftTest = `${swiftSource}
 let json = #"""
@@ -118,6 +121,7 @@ ${JSON.stringify(fixture)}
 let entry = try TelcelNetworkService.parseHomeFlowJSON(json)
 assert(entry.planName == "Telcel Libre 4")
 assert(entry.cutoffDate == "28 de octubre")
+assert(entry.shortCutoffDate == "28 oct")
 assert(entry.daysLeft == 9)
 assert(entry.buckets.count == 2)
 assert(entry.buckets[0].id == "0-0-0")
@@ -125,8 +129,8 @@ assert(entry.buckets[1].id == "0-1-0")
 assert(entry.totalMB == 15000)
 assert(entry.consumedMB == 9500.5)
 assert(entry.availableMB == 5474)
-assert(TelcelUsageEntry.errorFallback.percentUsed == 0)
-assert(TelcelUsageEntry.errorFallback.validityLabel == "Verificar cuenta")
+assert(TelcelUsageEntry.errorFallback.totalMB == 0)
+assert(TelcelUsageEntry.errorFallback.cutoffDate == "Verificar cuenta")
 print("✅ Swift & JS parser tests passed!")
 `;
 

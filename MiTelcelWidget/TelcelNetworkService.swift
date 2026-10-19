@@ -42,25 +42,12 @@ public struct TelcelUsageEntry: Codable, Equatable, Sendable {
         Int((usageRatio * 100.0).rounded())
     }
 
-    public var consumedFormatted: String {
-        if consumedMB < 1000 {
-            return "\(Int(consumedMB.rounded())) MB consumidos"
-        } else {
-            return String(format: "%.2f GB consumidos", consumedMB / 1000.0)
-        }
-    }
-
-    public var totalLabel: String {
-        hasPromo
-            ? String(format: "de %.1f GB (Plan+Promo)", totalGB)
-            : String(format: "de %.1f GB", totalGB)
-    }
-
-    public var validityLabel: String {
-        if daysLeft <= 0 { return cutoffDate }
-        return cutoffDate.isEmpty
-            ? "Faltan \(daysLeft) días"
-            : "Faltan \(daysLeft)d (\(cutoffDate))"
+    public var shortCutoffDate: String {
+        cutoffDate.replacingOccurrences(
+            of: #"\s+de\s+([a-záéíóú]{3})[a-záéíóú]*"#,
+            with: " $1",
+            options: [.regularExpression, .caseInsensitive]
+        )
     }
 
     public static let sample = TelcelUsageEntry(
@@ -387,6 +374,7 @@ public struct MiTelcelWidgetCardContent: View {
     }
 
     public var body: some View {
+        let gap = entry.usageRatio > 0.04 && entry.usageRatio < 0.96 ? 0.03 : 0.0
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .center) {
                 VStack(alignment: .leading, spacing: 1) {
@@ -394,19 +382,21 @@ public struct MiTelcelWidgetCardContent: View {
                         .font(.system(size: 11, weight: .bold))
                         .foregroundStyle(.white)
                     if !entry.cutoffDate.isEmpty {
-                        Text("Corte \(entry.cutoffDate)")
+                        Text(entry.totalMB > 0 ? "Corte \(entry.shortCutoffDate)" : entry.cutoffDate)
                             .font(.system(size: 9.5, weight: .regular))
                             .foregroundStyle(subtitleGray)
                             .lineLimit(1)
                     }
                 }
                 Spacer()
-                Text("\(entry.daysLeft) \(entry.daysLeft == 1 ? "día" : "días")")
-                    .font(.system(size: 12, weight: .bold))
-                    .foregroundStyle(daysColor)
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 3)
-                    .background(pillBg, in: RoundedRectangle(cornerRadius: 7))
+                if entry.totalMB > 0 {
+                    Text("\(entry.daysLeft) \(entry.daysLeft == 1 ? "día" : "días")")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(daysColor)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(pillBg, in: RoundedRectangle(cornerRadius: 7))
+                }
             }
 
             ZStack(alignment: .bottom) {
@@ -415,16 +405,16 @@ public struct MiTelcelWidgetCardContent: View {
                     .stroke(trackGray, style: StrokeStyle(lineWidth: 10, lineCap: .round))
                     .frame(width: 116, height: 116)
 
-                if entry.usageRatio > 0.005 {
+                if entry.totalMB > 0 && entry.usageRatio > 0.005 {
                     Circle()
-                        .trim(from: 0.5, to: 0.5 + max(0.01, entry.usageRatio * 0.5 - 0.015))
+                        .trim(from: 0.5, to: 0.5 + max(0.01, entry.usageRatio * 0.5 - gap))
                         .stroke(spentRed, style: StrokeStyle(lineWidth: 10, lineCap: .round))
                         .frame(width: 116, height: 116)
                 }
 
-                if entry.usageRatio < 0.995 {
+                if entry.totalMB > 0 && entry.usageRatio < 0.995 {
                     Circle()
-                        .trim(from: 0.5 + min(0.49, entry.usageRatio * 0.5 + 0.015), to: 1.0)
+                        .trim(from: 0.5 + min(0.49, entry.usageRatio * 0.5 + gap), to: 1.0)
                         .stroke(brandGreen, style: StrokeStyle(lineWidth: 10, lineCap: .round))
                         .frame(width: 116, height: 116)
                 }
