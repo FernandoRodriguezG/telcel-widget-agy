@@ -1,0 +1,9 @@
+.env
+cookies.txt
+artifacts/*_raw.json
+artifacts/*.html
+.DS_Store
+build/
+DerivedData/
+*.xcuserdata
+*.xcworkspace/xcuserdata/
