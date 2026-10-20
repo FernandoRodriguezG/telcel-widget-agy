@@ -38,7 +38,7 @@ async function getCredentials() {
     alert.addAction("Guardar");
     alert.addCancelAction("Cancelar");
     if ((await alert.presentAlert()) === 0) {
-      phone = alert.textFieldValue(0).trim();
+      phone = alert.textFieldValue(0).replace(/\D/g, "").slice(-10);
       password = alert.textFieldValue(1);
       if (phone && password) {
         Keychain.set("TELCEL_PHONE", phone);
@@ -46,7 +46,7 @@ async function getCredentials() {
       }
     }
   }
-  return { phone, password };
+  return { phone: String(phone || "").replace(/\D/g, "").slice(-10), password };
 }
 
 async function main() {
@@ -83,44 +83,60 @@ async function main() {
   Script.complete();
 }
 
+async function requestTelcel(url, method, headers, body, parseJson = true) {
+  if (typeof Request !== "undefined") {
+    const req = new Request(url);
+    req.method = method;
+    req.headers = headers;
+    if (body) req.body = body;
+    return parseJson ? req.loadJSON() : req.load();
+  }
+  const res = await fetch(url, { method, headers, body: body || undefined });
+  return parseJson ? res.json() : res.text();
+}
+
 /**
  * Autentica en Mi Telcel vía WebLogin SSO, intercambia el token B2F,
  * consulta el flujo Home (Wave B2F) y revoca el token SSO al finalizar.
  */
-async function fetchTelcelData() {
-  const { phone, password } = await getCredentials();
-  if (!phone || !password) {
-    throw new Error("Configura tus credenciales abriendo el script en Scriptable.");
+async function fetchTelcelData(creds) {
+  const raw = creds || await getCredentials();
+  const phone = String(raw?.phone || "").replace(/\D/g, "").slice(-10);
+  const password = raw?.password || "";
+  if (phone.length !== 10 || !password) {
+    throw new Error("Configura un número a 10 dígitos y contraseña en Scriptable.");
   }
   const ua = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1";
   const mtlBasic = "bXRwc2VydmljZXM6NyQ4N3JmRnN3ZSQyMV8=";
   const passClean = password.replace(/\s+/g, "");
-  const pB64 = Data.fromString(passClean).toBase64String();
+  const pB64 = typeof Data !== "undefined"
+    ? Data.fromString(passClean).toBase64String()
+    : Buffer.from(passClean, "utf8").toString("base64");
 
   // 1. Login SSO (wbl.telcel-id.com:8443/login -> redirige 302 a /Auth y devuelve { token })
-  const loginReq = new Request("https://wbl.telcel-id.com:8443/login");
-  loginReq.method = "POST";
-  loginReq.headers = {
-    "Origin": "https://wbl.telcel-id.com:8443",
-    "Referer": "https://wbl.telcel-id.com:8443/login?sitedomain=https://www.mitelcel.com&CCode=52&Type=MSISDN&Invocation=iFrame",
-    "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-    "X-Requested-With": "XMLHttpRequest",
-    "User-Agent": ua
-  };
-  loginReq.body = [
-    `username=${encodeURIComponent(phone)}`,
-    `telcel-pass=${encodeURIComponent(password)}`,
-    "sitedomain=https://www.mitelcel.com",
-    "CCode=52",
-    "Type=MSISDN",
-    "Invocation=iFrame",
-    `MSISDN=${encodeURIComponent(phone)}`,
-    "Source=",
-    `pB64=${encodeURIComponent(pB64)}`,
-    "url=https://wbl.telcel-id.com:8443"
-  ].join("&");
-
-  const loginJson = await loginReq.loadJSON();
+  const loginJson = await requestTelcel(
+    "https://wbl.telcel-id.com:8443/login",
+    "POST",
+    {
+      "Origin": "https://wbl.telcel-id.com:8443",
+      "Referer": "https://wbl.telcel-id.com:8443/login?sitedomain=https://www.mitelcel.com&CCode=52&Type=MSISDN&Invocation=iFrame",
+      "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+      "X-Requested-With": "XMLHttpRequest",
+      "User-Agent": ua
+    },
+    [
+      `username=${encodeURIComponent(phone)}`,
+      `telcel-pass=${encodeURIComponent(password)}`,
+      "sitedomain=https://www.mitelcel.com",
+      "CCode=52",
+      "Type=MSISDN",
+      "Invocation=iFrame",
+      `MSISDN=${encodeURIComponent(phone)}`,
+      "Source=",
+      `pB64=${encodeURIComponent(pB64)}`,
+      "url=https://wbl.telcel-id.com:8443"
+    ].join("&")
+  );
   const ssoToken = loginJson?.token;
   if (!ssoToken) {
     throw new Error(loginJson?.error?.description || "No se obtuvo token SSO");
@@ -128,24 +144,24 @@ async function fetchTelcelData() {
 
   try {
     // 2. Intercambio de Token SSO -> Token B2F
-    const tokenUrl = `https://mi-telcel.smapps.mx/security/1.0.0/v2/token?user=${encodeURIComponent(phone)}&token=${encodeURIComponent(ssoToken)}`;
-    const tokenReq = new Request(tokenUrl);
-    tokenReq.method = "GET";
-    tokenReq.headers = {
-      "Authorization": `Basic ${mtlBasic}`,
-      "scope": "token:mit|token:b2f",
-      "Accept": "application/json",
-      "Content-Type": "application/json",
-      "App-Version": "0.14",
-      "Code-Version": "38",
-      "Device-Id": "DSK",
-      "tipoRequest": "1",
-      "Os": "WEB",
-      "Os-Version": "13",
-      "X-Channel": "web-browser",
-      "User-Agent": "ktor-client"
-    };
-    const tokenJson = await tokenReq.loadJSON();
+    const tokenJson = await requestTelcel(
+      `https://mi-telcel.smapps.mx/security/1.0.0/v2/token?user=${encodeURIComponent(phone)}&token=${encodeURIComponent(ssoToken)}`,
+      "GET",
+      {
+        "Authorization": `Basic ${mtlBasic}`,
+        "scope": "token:mit|token:b2f",
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "App-Version": "0.14",
+        "Code-Version": "38",
+        "Device-Id": "DSK",
+        "tipoRequest": "1",
+        "Os": "WEB",
+        "Os-Version": "13",
+        "X-Channel": "web-browser",
+        "User-Agent": "ktor-client"
+      }
+    );
     const tokens = tokenJson?.tokenResponse?.tokens || [];
     const b2fToken = tokens.find(t => t.id === "token:b2f")?.access_token;
     if (!b2fToken) {
@@ -153,33 +169,36 @@ async function fetchTelcelData() {
     }
 
     // 3. Consulta de Consumo en Vivo (Wave B2F Home Flow)
-    const homeReq = new Request(`https://api.journeys.telcel.wavebybemobi.com/api/components/flow/home?externalCode=52${encodeURIComponent(phone)}`);
-    homeReq.method = "GET";
-    homeReq.headers = {
-      "Authorization": `Bearer ${b2fToken}`,
-      "Accept": "application/json",
-      "Content-Type": "application/json",
-      "X-Is-iPad": "false",
-      "x-wave-sdk": "WEB",
-      "x-wave-device": "iPhone",
-      "x-wave-device-type": "mobile",
-      "x-wave-os": "iOS-web",
-      "x-wave-os-version": "18.0",
-      "User-Agent": ua
-    };
-    const homeJson = await homeReq.loadJSON();
+    const homeJson = await requestTelcel(
+      `https://api.journeys.telcel.wavebybemobi.com/api/components/flow/home?externalCode=52${encodeURIComponent(phone)}`,
+      "GET",
+      {
+        "Authorization": `Bearer ${b2fToken}`,
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "X-Is-iPad": "false",
+        "x-wave-sdk": "WEB",
+        "x-wave-device": "iPhone",
+        "x-wave-device-type": "mobile",
+        "x-wave-os": "iOS-web",
+        "x-wave-os-version": "18.0",
+        "User-Agent": ua
+      }
+    );
     return parseTelcelResponse(homeJson);
   } finally {
     // 4. Revocación preventiva de sesión SSO
     try {
-      const revokeReq = new Request("https://dev.smapps.mx:9000/sso/revoke");
-      revokeReq.method = "POST";
-      revokeReq.headers = {
-        "Content-Type": "application/x-www-form-urlencoded",
-        "Accept": "application/json"
-      };
-      revokeReq.body = `token=${encodeURIComponent(ssoToken)}&token_type=revoke`;
-      await revokeReq.load();
+      await requestTelcel(
+        "https://dev.smapps.mx:9000/sso/revoke",
+        "POST",
+        {
+          "Content-Type": "application/x-www-form-urlencoded",
+          "Accept": "application/json"
+        },
+        `token=${encodeURIComponent(ssoToken)}&token_type=revoke`,
+        false
+      );
     } catch (_) {}
   }
 }
@@ -202,7 +221,7 @@ function parseTelcelResponse(payload) {
     if (Array.isArray(node.children)) node.children.forEach(walk);
     if (node.blocks) walk(node.blocks);
   })(payload);
-  suffixes.sort();
+  suffixes.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
 
   const toMB = (val, unit) => {
     const n = parseFloat(val);
@@ -250,13 +269,14 @@ function parseTelcelResponse(payload) {
   const buckets = (suffixes.length ? suffixes : ["0-0-0"])
     .map(parseBucket)
     .filter(b => b.totalMB > 0 || b.availableMB > 0);
-  const planBucket = buckets.find(b => b.id === "0-0-0") || buckets[0];
-  const promoBuckets = buckets.filter(b => b.id !== planBucket?.id);
+  if (!buckets.length) {
+    throw new Error(payload?.message || payload?.error || "Respuesta Home Flow sin bolsas de datos");
+  }
 
   const consumedMB = buckets.reduce((sum, b) => sum + b.consumedMB, 0);
   const totalMB = buckets.reduce((sum, b) => sum + b.totalMB, 0);
   const availableMB = buckets.reduce((sum, b) => sum + b.availableMB, 0);
-  const daysLeft = planBucket?.daysLeft ?? promoBuckets[0]?.daysLeft ?? 28;
+  const daysLeft = buckets.find(b => b.daysLeft !== null)?.daysLeft ?? 28;
   const cutoffDate = byId["plan-details-row-template-col-2-0-0"]?.value
     || byId["plan-details-row-template-col-2-web-0-0"]?.value
     || "";
@@ -275,8 +295,7 @@ function parseTelcelResponse(payload) {
     daysLeft,
     cutoffDate,
     planName,
-    plan: planBucket || null,
-    promo: promoBuckets[0] || null,
+    promo: buckets.length > 1,
     buckets,
     updatedAt: `${hh}:${mm}`,
     fromCache: false
@@ -490,5 +509,5 @@ if (typeof Script !== "undefined") {
   main();
 }
 if (typeof module !== "undefined") {
-  module.exports = { parseTelcelResponse, createWidget };
+  module.exports = { fetchTelcelData, parseTelcelResponse, createWidget };
 }

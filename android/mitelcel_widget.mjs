@@ -12,7 +12,7 @@ import { fileURLToPath } from "node:url";
 
 globalThis.Color ??= class { constructor(hex) { this.hex = hex; } };
 const require = createRequire(import.meta.url);
-const { parseTelcelResponse } = require("../src/MiTelcelWidget.js");
+const { fetchTelcelData } = require("../src/MiTelcelWidget.js");
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 // shortcut: lee .env por líneas simples KEY=VALUE sin librerías externas, migrar a dotenv si se usan valores multilínea
@@ -32,105 +32,8 @@ const CACHE_FILE = process.env.TELCEL_CACHE_FILE || (
     : resolve(__dirname, "../mitelcel_usage_cache.json")
 );
 
-const UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1";
-const MTL_BASIC = "bXRwc2VydmljZXM6NyQ4N3JmRnN3ZSQyMV8=";
-
-export async function fetchTelcelAndroid(phone, password) {
-  if (!phone || !password) {
-    throw new Error("Faltan TELCEL_PHONE o TELCEL_PASS en .env");
-  }
-  const passClean = password.replace(/\s+/g, "");
-  const pB64 = Buffer.from(passClean, "utf8").toString("base64");
-
-  // 1. Login SSO
-  const loginRes = await fetch("https://wbl.telcel-id.com:8443/login", {
-    method: "POST",
-    headers: {
-      "Origin": "https://wbl.telcel-id.com:8443",
-      "Referer": "https://wbl.telcel-id.com:8443/login?sitedomain=https://www.mitelcel.com&CCode=52&Type=MSISDN&Invocation=iFrame",
-      "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-      "X-Requested-With": "XMLHttpRequest",
-      "User-Agent": UA
-    },
-    body: new URLSearchParams({
-      username: phone,
-      "telcel-pass": password,
-      sitedomain: "https://www.mitelcel.com",
-      CCode: "52",
-      Type: "MSISDN",
-      Invocation: "iFrame",
-      MSISDN: phone,
-      Source: "",
-      pB64,
-      url: "https://wbl.telcel-id.com:8443"
-    }).toString()
-  });
-
-  const loginJson = await loginRes.json();
-  const ssoToken = loginJson?.token;
-  if (!ssoToken) {
-    throw new Error(loginJson?.error?.description || "No se obtuvo token SSO");
-  }
-
-  try {
-    // 2. Intercambio de Token SSO -> Token B2F
-    const tokenUrl = `https://mi-telcel.smapps.mx/security/1.0.0/v2/token?user=${encodeURIComponent(phone)}&token=${encodeURIComponent(ssoToken)}`;
-    const tokenRes = await fetch(tokenUrl, {
-      headers: {
-        "Authorization": `Basic ${MTL_BASIC}`,
-        "scope": "token:mit|token:b2f",
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-        "App-Version": "0.14",
-        "Code-Version": "38",
-        "Device-Id": "DSK",
-        "tipoRequest": "1",
-        "Os": "WEB",
-        "Os-Version": "13",
-        "X-Channel": "web-browser",
-        "User-Agent": "ktor-client"
-      }
-    });
-    const tokenJson = await tokenRes.json();
-    const tokens = tokenJson?.tokenResponse?.tokens || [];
-    const b2fToken = tokens.find(t => t.id === "token:b2f")?.access_token;
-    if (!b2fToken) {
-      throw new Error(tokenJson?.message || "No se obtuvo token:b2f");
-    }
-
-    // 3. Consulta Wave B2F Home Flow
-    const homeRes = await fetch(
-      `https://api.journeys.telcel.wavebybemobi.com/api/components/flow/home?externalCode=52${encodeURIComponent(phone)}`,
-      {
-        headers: {
-          "Authorization": `Bearer ${b2fToken}`,
-          "Accept": "application/json",
-          "Content-Type": "application/json",
-          "X-Is-iPad": "false",
-          "x-wave-sdk": "WEB",
-          "x-wave-device": "iPhone",
-          "x-wave-device-type": "mobile",
-          "x-wave-os": "iOS-web",
-          "x-wave-os-version": "18.0",
-          "User-Agent": UA
-        }
-      }
-    );
-    const homeJson = await homeRes.json();
-    return parseTelcelResponse(homeJson);
-  } finally {
-    // 4. Revocación obligatoria de sesión SSO
-    try {
-      await fetch("https://dev.smapps.mx:9000/sso/revoke", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-          "Accept": "application/json"
-        },
-        body: `token=${encodeURIComponent(ssoToken)}&token_type=revoke`
-      });
-    } catch (_) {}
-  }
+export function fetchTelcelAndroid(phone, password) {
+  return fetchTelcelData({ phone, password });
 }
 
 export function formatSummary(data) {

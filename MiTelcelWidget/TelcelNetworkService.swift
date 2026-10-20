@@ -1,4 +1,5 @@
 import Foundation
+import Security
 
 // MARK: - 1. Modelo de Datos de Consumo (Plan Base + Datos Promocionales + Vigencia)
 public struct TelcelBucketUsage: Codable, Equatable, Sendable {
@@ -50,6 +51,10 @@ public struct TelcelUsageEntry: Codable, Equatable, Sendable {
         )
     }
 
+    public var footerText: String {
+        "\(hasPromo ? "Plan+Promo" : planName) • ⏱️ \(updatedAtString)\(isCached ? " ☁️" : "")"
+    }
+
     public static let sample = TelcelUsageEntry(
         date: .now,
         consumedMB: 9500,
@@ -94,17 +99,67 @@ public actor TelcelNetworkService {
         UserDefaults(suiteName: appGroupId) ?? .standard
     }
 
-    public func fetchUsage(forceRefresh: Bool = false) async -> TelcelUsageEntry {
+    public static func normalizePhone(_ raw: String) -> String {
+        String(raw.filter(\.isNumber).suffix(10))
+    }
+
+    private static func getKeychain(_ key: String) -> String? {
+        let query: [CFString: Any] = [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: "mx.mitelcel.widget",
+            kSecAttrAccount: key,
+            kSecReturnData: true,
+            kSecMatchLimit: kSecMatchLimitOne
+        ]
+        var item: CFTypeRef?
+        guard SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess,
+              let data = item as? Data else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    private static func setKeychain(_ key: String, _ value: String) {
+        let query: [CFString: Any] = [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: "mx.mitelcel.widget",
+            kSecAttrAccount: key
+        ]
+        SecItemDelete(query as CFDictionary)
+        guard !value.isEmpty, let data = value.data(using: .utf8) else { return }
+        var attrs = query
+        attrs[kSecValueData] = data
+        SecItemAdd(attrs as CFDictionary, nil)
+    }
+
+    public static func loadCredentials() -> (phone: String, password: String) {
+        let defaults = sharedDefaults
+        let env = ProcessInfo.processInfo.environment
+        let rawPhone = getKeychain("telcel_phone") ?? defaults.string(forKey: "telcel_phone") ?? env["TELCEL_PHONE"] ?? ""
+        let password = getKeychain("telcel_pass") ?? env["TELCEL_PASS"] ?? ""
+        return (normalizePhone(rawPhone), password)
+    }
+
+    public static func saveCredentials(phone: String, password: String) {
+        let clean = normalizePhone(phone)
+        setKeychain("telcel_phone", clean)
+        setKeychain("telcel_pass", password)
+        sharedDefaults.set(clean, forKey: "telcel_phone")
+        sharedDefaults.removeObject(forKey: "telcel_pass")
+    }
+
+    public func fetchUsage(forceRefresh: Bool = false, overridePhone: String? = nil, overridePassword: String? = nil) async -> TelcelUsageEntry {
+        let oPhone = Self.normalizePhone(overridePhone ?? "")
+        let oPass = overridePassword ?? ""
+        if oPhone.count == 10, !oPass.isEmpty {
+            Self.saveCredentials(phone: oPhone, password: oPass)
+        }
         if !forceRefresh, let recent = loadCache(maxAge: 10) {
             return recent
         }
 
-        let defaults = Self.sharedDefaults
-        let env = ProcessInfo.processInfo.environment
-        let phone = (defaults.string(forKey: "telcel_phone") ?? env["TELCEL_PHONE"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        let password = defaults.string(forKey: "telcel_pass") ?? env["TELCEL_PASS"] ?? ""
-
-        guard !phone.isEmpty, !password.isEmpty else {
+        let stored = Self.loadCredentials()
+        let phone = oPhone.count == 10 ? oPhone : stored.phone
+        let password = !oPass.isEmpty ? oPass : stored.password
+        guard phone.count == 10, !password.isEmpty else {
             return loadCache() ?? .errorFallback
         }
 
@@ -174,7 +229,9 @@ public actor TelcelNetworkService {
             }
 
             // 3. Consulta de Home Flow (Wave B2F: Plan Base + Datos Promocionales + Fecha de Corte)
-            let homeURL = URL(string: "https://api.journeys.telcel.wavebybemobi.com/api/components/flow/home?externalCode=52\(phone)")!
+            var homeComps = URLComponents(string: "https://api.journeys.telcel.wavebybemobi.com/api/components/flow/home")!
+            homeComps.queryItems = [URLQueryItem(name: "externalCode", value: "52\(phone)")]
+            guard let homeURL = homeComps.url else { throw URLError(.badURL) }
             var homeReq = URLRequest(url: homeURL)
             homeReq.setValue("Bearer \(b2fToken)", forHTTPHeaderField: "Authorization")
             homeReq.setValue("application/json", forHTTPHeaderField: "Accept")
@@ -186,7 +243,10 @@ public actor TelcelNetworkService {
             homeReq.setValue("10.15.7", forHTTPHeaderField: "x-wave-os-version")
             homeReq.setValue(ua, forHTTPHeaderField: "User-Agent")
 
-            let (homeData, _) = try await session.data(for: homeReq)
+            let (homeData, homeResp) = try await session.data(for: homeReq)
+            guard (homeResp as? HTTPURLResponse)?.statusCode == 200 else {
+                throw URLError(.badServerResponse)
+            }
             let entry = try Self.parseHomeFlowJSON(homeData)
             saveCache(entry)
             result = entry
@@ -236,12 +296,15 @@ public actor TelcelNetworkService {
             }
         }
         walk(root)
-        suffixes.sort()
+        suffixes.sort { $0.localizedStandardCompare($1) == .orderedAscending }
+
+        func toDouble(_ raw: Any?) -> Double? {
+            guard let raw else { return nil }
+            return (raw as? Double) ?? (raw as? Int).map(Double.init) ?? (raw as? String).flatMap(Double.init)
+        }
 
         func toMB(_ val: Any?, unit: Any?) -> Double? {
-            guard let raw = val else { return nil }
-            let num: Double? = (raw as? Double) ?? (raw as? Int).map(Double.init) ?? (raw as? String).flatMap(Double.init)
-            guard let n = num else { return nil }
+            guard let n = toDouble(val) else { return nil }
             let u = ((unit as? String) ?? "MB").uppercased()
             if u == "GB" { return n * 1000.0 }
             if u == "KB" { return n / 1024.0 }
@@ -252,19 +315,24 @@ public actor TelcelNetworkService {
         var totalMB = 0.0
         var availableMB = 0.0
         var buckets: [TelcelBucketUsage] = []
+        var resolvedDays: Int?
+        let orderedSuffixes = suffixes.isEmpty ? ["0-0-0"] : suffixes
 
-        for sfx in (suffixes.isEmpty ? ["0-0-0"] : suffixes) {
+        for sfx in orderedSuffixes {
             let name = (byId["tabs-plans-v2-plan-name-\(sfx)"]?["value"] as? String) ?? sfx
             let chartArr = byId["tabs-plans-v2-usage-chart-\(sfx)"]?["data"] as? [[String: Any]]
-            let chartUsedKB = chartArr?.first(where: { ($0["key"] as? String) == "used" })?["value"] as? Double ?? 0
-            let chartAvailKB = chartArr?.first(where: { ($0["key"] as? String) == "available" })?["value"] as? Double ?? 0
+            let chartUsedKB = toDouble(chartArr?.first(where: { ($0["key"] as? String) == "used" })?["value"])
+            let chartAvailKB = toDouble(chartArr?.first(where: { ($0["key"] as? String) == "available" })?["value"])
 
             let bUsed = toMB(byId["tabs-plans-v2-used-data-value-\(sfx)"]?["value"],
-                             unit: byId["tabs-plans-v2-used-data-unit-\(sfx)"]?["value"]) ?? (chartUsedKB / 1024.0).rounded()
+                             unit: byId["tabs-plans-v2-used-data-unit-\(sfx)"]?["value"])
+                ?? chartUsedKB.map { $0 / 1024.0 } ?? 0
             let bTotal = toMB(byId["tabs-plans-v2-total-data-value-\(sfx)"]?["value"],
-                              unit: byId["tabs-plans-v2-total-data-unit-\(sfx)"]?["value"]) ?? ((chartUsedKB + chartAvailKB) / 1024.0).rounded()
+                              unit: byId["tabs-plans-v2-total-data-unit-\(sfx)"]?["value"])
+                ?? (chartUsedKB != nil && chartAvailKB != nil ? ((chartUsedKB! + chartAvailKB!) / 1024.0) : 0)
             let bAvail = toMB(byId["tabs-plans-v2-available-data-value-\(sfx)"]?["value"],
-                              unit: byId["tabs-plans-v2-available-data-unit-\(sfx)"]?["value"]) ?? max(0, bTotal - bUsed)
+                              unit: byId["tabs-plans-v2-available-data-unit-\(sfx)"]?["value"])
+                ?? max(0, bTotal - bUsed)
 
             if bTotal > 0 || bAvail > 0 {
                 consumedMB += bUsed
@@ -277,13 +345,21 @@ public actor TelcelNetworkService {
                     totalMB: bTotal,
                     availableMB: bAvail
                 ))
+                if resolvedDays == nil {
+                    let segments = (byId["tabs-plans-v2-limited-cutoff-message-\(sfx)"]?["segments"] as? [[String: Any]]) ?? []
+                    let cutoffMsg = segments.compactMap { $0["text"] as? String }.joined()
+                    resolvedDays = cutoffMsg.split(whereSeparator: { !$0.isNumber }).first.flatMap { Int($0) }
+                }
             }
         }
 
-        let segments = (byId["tabs-plans-v2-limited-cutoff-message-0-0-0"]?["segments"] as? [[String: Any]]) ?? []
-        let cutoffMsg = segments.compactMap { $0["text"] as? String }.joined()
-        let daysLeft = cutoffMsg.split(whereSeparator: { !$0.isNumber }).first.flatMap { Int($0) } ?? 28
-        let cutoffDate = (byId["plan-details-row-template-col-2-0-0"]?["value"] as? String) ?? ""
+        guard !buckets.isEmpty else {
+            throw URLError(.cannotParseResponse)
+        }
+        let daysLeft = resolvedDays ?? 28
+        let cutoffDate = (byId["plan-details-row-template-col-2-0-0"]?["value"] as? String)
+            ?? (byId["plan-details-row-template-col-2-web-0-0"]?["value"] as? String)
+            ?? ""
         let planName = (byId["text-plan-name"]?["value"] as? String)
             ?? (byId["plan-details-name"]?["value"] as? String)
             ?? "Mi Telcel"

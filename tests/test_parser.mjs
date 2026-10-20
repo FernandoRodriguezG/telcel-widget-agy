@@ -51,17 +51,20 @@ globalThis.ListWidget = class {
 };
 const require = createRequire(import.meta.url);
 const { parseTelcelResponse, createWidget } = require("../src/MiTelcelWidget.js");
+const { formatSummary } = await import("../android/mitelcel_widget.mjs");
 
 const fixture = {
   blocks: {
     children: [
       { id: "text-plan-name", config: { value: "Telcel Libre 4" } },
-      { id: "plan-details-row-template-col-2-0-0", config: { value: "28 de octubre" } },
+      { id: "plan-details-row-template-col-2-web-0-0", config: { value: "28 de octubre" } },
+      // Chart-only bucket with suffix 0-10-0 to verify numeric sort and KB chart fallback
+      { id: "tabs-plans-v2-plan-name-0-10-0", config: { value: "Bono Chart KB" } },
       {
-        id: "tabs-plans-v2-limited-cutoff-message-0-0-0",
-        config: { segments: [{ text: "Faltan " }, { text: "9" }, { text: " días" }] }
+        id: "tabs-plans-v2-usage-chart-0-10-0",
+        config: { data: [{ key: "used", value: 512 }, { key: "available", value: 512 }] }
       },
-      // Out-of-order promo bucket with KB used and GB total
+      // Out-of-order promo bucket with KB used, GB total, and the only cutoff days message
       { id: "tabs-plans-v2-plan-name-0-1-0", config: { value: "PROMO 50% DE DATOS 24 MDP" } },
       { id: "tabs-plans-v2-total-data-value-0-1-0", config: { value: "5" } },
       { id: "tabs-plans-v2-total-data-unit-0-1-0", config: { value: "GB" } },
@@ -69,6 +72,10 @@ const fixture = {
       { id: "tabs-plans-v2-used-data-unit-0-1-0", config: { value: "KB" } },
       { id: "tabs-plans-v2-available-data-value-0-1-0", config: { value: "5" } },
       { id: "tabs-plans-v2-available-data-unit-0-1-0", config: { value: "GB" } },
+      {
+        id: "tabs-plans-v2-limited-cutoff-message-0-1-0",
+        config: { segments: [{ text: "Faltan " }, { text: "9" }, { text: " días" }] }
+      },
       // Empty bucket that should be ignored
       { id: "tabs-plans-v2-plan-name-0-2-0", config: { value: "Bolsa vacía" } },
       { id: "tabs-plans-v2-total-data-value-0-2-0", config: { value: "0" } },
@@ -85,17 +92,19 @@ const fixture = {
   }
 };
 
-// 1. Test Scriptable JS parser
+// 1. Test Scriptable JS parser & Android summary
+const errorScreen = { blocks: { children: [{ id: "alert-error", config: { value: "Mantenimiento" } }] } };
+assert.throws(() => parseTelcelResponse(errorScreen), /sin bolsas de datos/);
 const jsRes = parseTelcelResponse(fixture);
 assert.equal(jsRes.planName, "Telcel Libre 4");
 assert.equal(jsRes.cutoffDate, "28 de octubre");
 assert.equal(jsRes.daysLeft, 9);
-assert.equal(jsRes.buckets.length, 2);
-assert.equal(jsRes.buckets[0].id, "0-0-0");
-assert.equal(jsRes.buckets[1].id, "0-1-0");
-assert.equal(jsRes.totalMB, 15000);
-assert.equal(jsRes.consumedMB, 9500.5); // 9500 MB + 512 KB (0.5 MB)
-assert.equal(jsRes.availableMB, 5474);
+assert.equal(jsRes.promo, true);
+assert.deepEqual(jsRes.buckets.map(b => b.id), ["0-0-0", "0-1-0", "0-10-0"]);
+assert.equal(jsRes.totalMB, 15001);
+assert.equal(jsRes.consumedMB, 9501); // 9500 MB + 0.5 MB + 0.5 MB
+assert.equal(jsRes.availableMB, 5474.5);
+assert(formatSummary(jsRes).includes("5.47 GB libres de 15.0 GB"));
 
 const wMid = createWidget(jsRes);
 assert(wMid.texts.includes("9 días"));
@@ -112,7 +121,7 @@ assert.equal(wZero.images[0].arcs, 2); // track + green left only
 const wEmpty = createWidget({ ...jsRes, totalMB: 0, consumedMB: 0, availableMB: 0 });
 assert.equal(wEmpty.images[0].arcs, 1); // track only when totalMB == 0
 
-// 2. Test Swift parser with the same fixture + shortCutoffDate & errorFallback check
+// 2. Test Swift parser with the same fixture, error rejection, phone normalization & footerText
 const swiftSource = readFileSync("MiTelcelWidget/TelcelNetworkService.swift", "utf8");
 const swiftTest = `${swiftSource}
 let json = #"""
@@ -123,12 +132,14 @@ assert(entry.planName == "Telcel Libre 4")
 assert(entry.cutoffDate == "28 de octubre")
 assert(entry.shortCutoffDate == "28 oct")
 assert(entry.daysLeft == 9)
-assert(entry.buckets.count == 2)
-assert(entry.buckets[0].id == "0-0-0")
-assert(entry.buckets[1].id == "0-1-0")
-assert(entry.totalMB == 15000)
-assert(entry.consumedMB == 9500.5)
-assert(entry.availableMB == 5474)
+assert(entry.buckets.map(\\.id) == ["0-0-0", "0-1-0", "0-10-0"])
+assert(entry.totalMB == 15001)
+assert(entry.consumedMB == 9501)
+assert(entry.availableMB == 5474.5)
+assert(entry.footerText.hasPrefix("Plan+Promo • ⏱️ "))
+assert(TelcelNetworkService.normalizePhone("+52 (55) 1234-5678") == "5512345678")
+let badJson = #"{"blocks":{"children":[{"id":"alert-error","config":{"value":"Mantenimiento"}}]}}"#.data(using: .utf8)!
+assert((try? TelcelNetworkService.parseHomeFlowJSON(badJson)) == nil)
 assert(TelcelUsageEntry.errorFallback.totalMB == 0)
 assert(TelcelUsageEntry.errorFallback.cutoffDate == "Verificar cuenta")
 print("✅ Swift & JS parser tests passed!")

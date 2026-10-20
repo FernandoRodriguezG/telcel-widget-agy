@@ -11,10 +11,16 @@ struct MiTelcelApp: App {
 }
 
 struct ContentView: View {
-    @AppStorage("telcel_phone", store: TelcelNetworkService.sharedDefaults) private var phone = ""
-    @AppStorage("telcel_pass", store: TelcelNetworkService.sharedDefaults) private var password = ""
+    @State private var phone: String
+    @State private var password: String
     @State private var entry: TelcelUsageEntry = .sample
     @State private var isLoading = false
+
+    init() {
+        let creds = TelcelNetworkService.loadCredentials()
+        _phone = State(initialValue: creds.phone)
+        _password = State(initialValue: creds.password)
+    }
 
     var body: some View {
         NavigationStack {
@@ -23,9 +29,11 @@ struct ContentView: View {
                     VStack(alignment: .leading, spacing: 0) {
                         MiTelcelWidgetCardContent(entry: entry)
                         Spacer(minLength: 8)
-                        Text("\(entry.percentUsed)% usado • ⏱️ \(entry.updatedAtString)\(entry.isCached ? " ☁️" : "")")
+                        Text(entry.footerText)
                             .font(.system(size: 11))
                             .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
                     }
                     .padding(16)
                     .frame(width: 170, height: 170)
@@ -73,7 +81,12 @@ struct ContentView: View {
                     Button {
                         Task {
                             isLoading = true
-                            entry = await TelcelNetworkService.shared.fetchUsage(forceRefresh: true)
+                            entry = await TelcelNetworkService.shared.fetchUsage(
+                                forceRefresh: true,
+                                overridePhone: phone,
+                                overridePassword: password
+                            )
+                            phone = TelcelNetworkService.loadCredentials().phone
                             WidgetCenter.shared.reloadAllTimelines()
                             isLoading = false
                         }

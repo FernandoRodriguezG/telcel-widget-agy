@@ -4,7 +4,18 @@ import AppIntents
 
 extension TelcelUsageEntry: TimelineEntry {}
 
-// MARK: - 1. AppIntent para Recarga Interactiva desde el Widget (iOS 17+)
+// MARK: - 1. AppIntents para Configuración y Recarga Interactiva desde el Widget (iOS 17+)
+struct TelcelWidgetConfigIntent: WidgetConfigurationIntent {
+    static var title: LocalizedStringResource = "Cuenta Mi Telcel"
+    static var description = IntentDescription("Opcional: configura tus credenciales directamente en el widget si usas cuenta gratuita sin App Groups.")
+
+    @Parameter(title: "Número (10 dígitos)", default: "")
+    var phone: String
+
+    @Parameter(title: "Contraseña Mi Telcel", default: "")
+    var password: String
+}
+
 struct RefreshTelcelUsageIntent: AppIntent {
     static var title: LocalizedStringResource = "Actualizar Consumo Mi Telcel"
 
@@ -16,22 +27,22 @@ struct RefreshTelcelUsageIntent: AppIntent {
 }
 
 // MARK: - 2. TimelineProvider
-struct MiTelcelTimelineProvider: TimelineProvider {
+struct MiTelcelTimelineProvider: AppIntentTimelineProvider {
     func placeholder(in context: Context) -> TelcelUsageEntry {
         .sample
     }
 
-    func getSnapshot(in context: Context, completion: @escaping (TelcelUsageEntry) -> Void) {
-        completion(.sample)
+    func snapshot(for configuration: TelcelWidgetConfigIntent, in context: Context) async -> TelcelUsageEntry {
+        .sample
     }
 
-    func getTimeline(in context: Context, completion: @escaping (Timeline<TelcelUsageEntry>) -> Void) {
-        Task {
-            let entry = await TelcelNetworkService.shared.fetchUsage()
-            let nextUpdate = Calendar.current.date(byAdding: .minute, value: 30, to: .now)!
-            let timeline = Timeline(entries: [entry], policy: .after(nextUpdate))
-            completion(timeline)
-        }
+    func timeline(for configuration: TelcelWidgetConfigIntent, in context: Context) async -> Timeline<TelcelUsageEntry> {
+        let entry = await TelcelNetworkService.shared.fetchUsage(
+            overridePhone: configuration.phone,
+            overridePassword: configuration.password
+        )
+        let nextUpdate = Calendar.current.date(byAdding: .minute, value: 30, to: .now)!
+        return Timeline(entries: [entry], policy: .after(nextUpdate))
     }
 }
 
@@ -50,9 +61,11 @@ public struct MiTelcelWidgetView: View {
             Spacer(minLength: 8)
 
             Button(intent: RefreshTelcelUsageIntent()) {
-                Text("\(entry.percentUsed)% usado • ⏱️ \(entry.updatedAtString)\(entry.isCached ? " ☁️" : "")")
+                Text(entry.footerText)
                     .font(.system(size: 11, weight: .regular))
                     .foregroundStyle(Color(red: 0.60, green: 0.60, blue: 0.62))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
             }
             .buttonStyle(.plain)
         }
@@ -66,7 +79,7 @@ struct MiTelcelUsageWidget: Widget {
     let kind: String = "MiTelcelUsageWidget"
 
     var body: some WidgetConfiguration {
-        StaticConfiguration(kind: kind, provider: MiTelcelTimelineProvider()) { entry in
+        AppIntentConfiguration(kind: kind, intent: TelcelWidgetConfigIntent.self, provider: MiTelcelTimelineProvider()) { entry in
             MiTelcelWidgetView(entry: entry)
         }
         .configurationDisplayName("Mi Telcel Consumo")
