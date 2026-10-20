@@ -51,6 +51,7 @@ globalThis.ListWidget = class {
 };
 const require = createRequire(import.meta.url);
 const { parseTelcelResponse, createWidget } = require("../src/MiTelcelWidget.js");
+const { parseBaitResponse, createWidget: createBaitWidget } = require("../src/MiBaitWidget.js");
 const { formatSummary } = await import("../android/mitelcel_widget.mjs");
 
 const fixture = {
@@ -120,6 +121,67 @@ assert.equal(wZero.images[0].arcs, 2); // track + green left only
 
 const wEmpty = createWidget({ ...jsRes, totalMB: 0, consumedMB: 0, availableMB: 0 });
 assert.equal(wEmpty.images[0].arcs, 1); // track only when totalMB == 0
+
+// 1b. Test Mi Bait parser & widget
+const baitNow = new Date(2026, 9, 20, 10, 9); // Oct 20, 2026 10:09 local
+const baitFixture = {
+  success: true,
+  data: [
+    {
+      category: "Data",
+      type: "BestEffort",
+      unlimited: false,
+      resume: { total: 10240, unused: 6144, expire_date: "2026-11-01T23:59:59.000Z" }
+    },
+    {
+      category: "Data",
+      type: "Benefits",
+      offers_detail: [
+        { total: 5120, unused: 5120, expire_date: "2026-11-01T23:59:59.000Z" },
+        { total: 2048, unused: 2048, expire_date: "2026-09-01T00:00:00.000Z" } // expired offer ignored
+      ]
+    },
+    {
+      category: "Data",
+      type: "SocialMedia",
+      unlimited: true,
+      resume: { total: 5120, unused: 4800, expire_date: "2026-12-31T23:59:59.000Z" } // non-base bucket date ignored
+    },
+    {
+      category: "Minutes",
+      type: "National",
+      resume: { total: 100, unused: 50, expire_date: "2026-12-15T23:59:59.000Z" } // voice date ignored
+    }
+  ]
+};
+assert.throws(() => parseBaitResponse({ success: false, message: "No se encontró" }), /No se encontró/);
+const baitRes = parseBaitResponse(baitFixture, baitNow);
+assert.equal(baitRes.planName, "Mi Bait");
+assert.equal(baitRes.cutoffDate, "1 de noviembre");
+assert.equal(baitRes.daysLeft, 12);
+assert.equal(baitRes.promo, true);
+assert.equal(baitRes.totalMB, 15360);
+assert.equal(baitRes.consumedMB, 4096);
+assert.equal(baitRes.availableMB, 11264);
+const wBait = createBaitWidget(baitRes);
+assert(wBait.texts.includes("Mi Bait"));
+assert(wBait.texts.includes("Vigencia 1 nov"));
+assert(wBait.texts.includes("12 días"));
+assert.deepEqual(wBait.images[0].texts, ["11.00 GB", "libres de 15.0 GB"]);
+
+// Standard 2-bucket Fair-Use (BestEffort + Throttling) unlimited plan with expired cutoff
+const baitUnlimited = parseBaitResponse({
+  success: true,
+  data: [
+    { category: "Data", type: "BestEffort", unlimited: true, resume: { total: 10240, unused: 0, expire_date: "2026-10-15T23:59:59.000Z" } },
+    { category: "Data", type: "Throttling", unlimited: true, resume: { total: 10240, unused: 5120, expire_date: "2026-10-15T23:59:59.000Z" } }
+  ]
+}, baitNow);
+assert.equal(baitUnlimited.promo, false);
+assert.equal(baitUnlimited.planName, "Bait Ilimitado");
+assert.equal(baitUnlimited.daysLeft, 0);
+const wBaitUnl = createBaitWidget(baitUnlimited);
+assert(wBaitUnl.texts.some(t => t.startsWith("Bait Ilimitado • ⏱")));
 
 // 2. Test Swift parser with the same fixture, error rejection, phone normalization & footerText
 const swiftSource = readFileSync("MiTelcelWidget/TelcelNetworkService.swift", "utf8");
