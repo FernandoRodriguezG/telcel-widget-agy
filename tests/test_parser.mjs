@@ -51,7 +51,7 @@ globalThis.ListWidget = class {
 };
 const require = createRequire(import.meta.url);
 const { parseTelcelResponse, createWidget } = require("../src/MiTelcelWidget.js");
-const { parseBaitResponse, createWidget: createBaitWidget } = require("../src/MiBaitWidget.js");
+const { parseBaitResponse, createWidget: createBaitWidget, loadCache: loadBaitCache } = require("../src/MiBaitWidget.js");
 const { formatSummary } = await import("../android/mitelcel_widget.mjs");
 
 const fixture = {
@@ -158,6 +158,7 @@ assert.throws(() => parseBaitResponse({ success: false, message: "No se encontrÃ
 const baitRes = parseBaitResponse(baitFixture, baitNow);
 assert.equal(baitRes.planName, "Mi Bait");
 assert.equal(baitRes.cutoffDate, "1 de noviembre");
+assert.equal(baitRes.cutoffISO, "2026-11-01");
 assert.equal(baitRes.daysLeft, 12);
 assert.equal(baitRes.promo, true);
 assert.equal(baitRes.totalMB, 15360);
@@ -168,6 +169,30 @@ assert(wBait.texts.includes("Mi Bait"));
 assert(wBait.texts.includes("Vigencia 1 nov"));
 assert(wBait.texts.includes("12 dÃ­as"));
 assert.deepEqual(wBait.images[0].texts, ["11.00 GB", "libres de 15.0 GB"]);
+
+// Verify null cutoffISO when no expire_date exists and loadCache daysLeft recalculation/clamping
+const baitNoCutoff = parseBaitResponse({
+  success: true,
+  data: [{ category: "Data", type: "BestEffort", unlimited: false, resume: { total: 1024, unused: 512 } }]
+}, baitNow);
+assert.equal(baitNoCutoff.cutoffISO, null);
+assert.equal(baitNoCutoff.cutoffDate, "");
+assert.equal(baitNoCutoff.daysLeft, 0);
+
+globalThis.FileManager = {
+  local: () => ({
+    documentsDirectory: () => "/tmp",
+    joinPath: (a, b) => `${a}/${b}`,
+    fileExists: () => true,
+    readString: () => JSON.stringify(baitRes)
+  })
+};
+const cachedLater = loadBaitCache(new Date(2026, 9, 28, 8, 0)); // 4 days before Nov 1
+assert.equal(cachedLater.fromCache, true);
+assert.equal(cachedLater.daysLeft, 4);
+const cachedExpired = loadBaitCache(new Date(2026, 10, 5, 8, 0)); // Past Nov 1 -> clamped to 0
+assert.equal(cachedExpired.fromCache, true);
+assert.equal(cachedExpired.daysLeft, 0);
 
 // Standard 2-bucket Fair-Use (BestEffort + Throttling) unlimited plan with expired cutoff
 const baitUnlimited = parseBaitResponse({

@@ -112,6 +112,13 @@ async function fetchBaitData(creds) {
   return parseBaitResponse(json);
 }
 
+function parseExpire(iso) {
+  const m = String(iso || "").split("T")[0].match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return null;
+  const dt = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  return Number.isNaN(dt.getTime()) ? null : dt;
+}
+
 /**
  * Normaliza la respuesta de /api/core/q/dn/{phone}/get/consumption (esquema Altán/Ordenaris).
  * Suma bolsas BestEffort + Throttling (Plan Base) y Benefits vigentes (Datos Promocionales).
@@ -125,12 +132,6 @@ function parseBaitResponse(payload, now = new Date()) {
   const buckets = [];
   let maxExpire = null;
 
-  const parseExpire = (iso) => {
-    const m = String(iso || "").split("T")[0].match(/^(\d{4})-(\d{2})-(\d{2})$/);
-    if (!m) return null;
-    const dt = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
-    return Number.isNaN(dt.getTime()) ? null : dt;
-  };
   const trackExpire = (dt) => {
     if (dt && (!maxExpire || dt > maxExpire)) maxExpire = dt;
   };
@@ -190,6 +191,9 @@ function parseBaitResponse(payload, now = new Date()) {
   const cutoffDate = maxExpire
     ? `${maxExpire.getDate()} de ${MONTHS_ES[maxExpire.getMonth()]}`
     : "";
+  const cutoffISO = maxExpire
+    ? `${maxExpire.getFullYear()}-${String(maxExpire.getMonth() + 1).padStart(2, "0")}-${String(maxExpire.getDate()).padStart(2, "0")}`
+    : null;
 
   const hh = String(now.getHours()).padStart(2, "0");
   const mm = String(now.getMinutes()).padStart(2, "0");
@@ -200,6 +204,7 @@ function parseBaitResponse(payload, now = new Date()) {
     availableMB,
     daysLeft,
     cutoffDate,
+    cutoffISO,
     planName: isUnlimited ? "Bait Ilimitado" : "Mi Bait",
     promo: buckets.some(b => b.id === "Benefits"),
     buckets,
@@ -380,12 +385,17 @@ function saveCache(data) {
   fm.writeString(getCachePath(), JSON.stringify(data));
 }
 
-function loadCache() {
+function loadCache(now = new Date()) {
   try {
     const fm = FileManager.local();
     const path = getCachePath();
     if (fm.fileExists(path)) {
       const parsed = JSON.parse(fm.readString(path));
+      const exp = parseExpire(parsed.cutoffISO);
+      if (exp) {
+        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        parsed.daysLeft = Math.max(0, Math.round((exp.getTime() - today.getTime()) / 86400000));
+      }
       parsed.fromCache = true;
       return parsed;
     }
@@ -397,5 +407,5 @@ if (typeof Script !== "undefined") {
   main();
 }
 if (typeof module !== "undefined") {
-  module.exports = { fetchBaitData, parseBaitResponse, createWidget };
+  module.exports = { fetchBaitData, parseBaitResponse, createWidget, loadCache };
 }

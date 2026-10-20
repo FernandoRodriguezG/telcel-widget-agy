@@ -1,6 +1,6 @@
 # Research Report: iOS Data Widget APIs for Bait, AT&T México, and Movistar México (2026)
 
-This report documents the reverse-engineered web architectures, authentication flows, cryptographic layers, REST endpoints, and JSON schemas required to replicate the **Mi Telcel iOS Widget** ([`Telcel Widget API.md`](file:///Users/armandomaynez/Code/Repos/telcel-widget-agy/Telcel%20Widget%20API.md)) for Mexico's other three major mobile providers: **Bait (Walmart / Altán Redes)**, **AT&T México**, and **Movistar México**.
+This report documents the reverse-engineered web architectures, authentication flows, cryptographic layers, REST endpoints, and JSON schemas required to replicate the **Mi Telcel iOS Widget** ([`Telcel Widget API.md`](Telcel%20Widget%20API.md)) for Mexico's other three major mobile providers: **Bait (Walmart / Altán Redes)**, **AT&T México**, and **Movistar México**.
 
 All endpoints, headers, cryptographic keys, and payload schemas below were verified directly against each carrier's live production JavaScript bundles in October 2026.
 
@@ -38,6 +38,9 @@ Bait's self-service portal (`https://mibait.com`) is built by **Ordenaris** on t
 | `xOrdApiSSO` | `x-ord-api` | `26716189c88044d2a083784bf02ffded` | Walmart SSO bridge (`/api/v1/sso/...`) |
 | `xOrdHostSSO` | `x-ord-host` | `https://mibait.com` | Walmart SSO bridge (`/api/v1/sso/...`) |
 | `sso.client_id` | Query param | `9d085bd0-1c84-4e08-9624-6aaa71640621` | Walmart OAuth2 (`https://www.walmart.com.mx/sso/`) |
+
+> [!NOTE]
+> **Public Key Scope, Privacy & Rate Limits:** `x-ord-service` (`57bfb26735aa4ec3a1baafa864006d7d`) is a public client-side key shipped in `mibait.com`'s frontend bundle and scoped strictly to read-only MSISDN consumption (`/get/consumption`) and line status (`/get/status`) lookups. Responses return only aggregate MB totals and expiration timestamps—never subscriber PII (name, email, billing, or payment details require authenticated Path B/C tokens). Requests are gated upstream by Cloudflare/Akamai WAF per-IP rate limits, so clients must cache responses locally and poll only on standard widget refresh intervals.
 
 ```mermaid
 sequenceDiagram
@@ -196,7 +199,7 @@ For accounts migrated to Walmart Unified SSO:
 ## 2. AT&T México (`miattweb.att.com.mx`)
 
 > [!IMPORTANT]
-> **Key Discovery:** AT&T México's web portal (`https://miattweb.att.com.mx`) uses a Node.js BFF that **does not require CAPTCHA on standard password login**, making headless widget refreshes possible. However, **every HTTP request and response body is AES-encrypted** using `CryptoJS.AES` with a dynamic session key (`__sk`) injected into `<meta name="__sk">` alongside an `HttpOnly` session cookie (`crypto.sid`).
+> **Key Discovery:** AT&T México's web portal (`https://miattweb.att.com.mx`) uses a Node.js BFF that **does not require CAPTCHA on standard password login**, making headless widget refreshes possible. While the initial bootstrap `GET /` returns plaintext HTML containing the `<meta name="__sk">` value alongside an `HttpOnly` session cookie (`crypto.sid`), **every subsequent API request and response payload is AES-encrypted** using `CryptoJS.AES` with that dynamic `__sk` session key.
 
 ### 2.1 Architecture & Dual-Layer AES Encryption (`module 8577` & `gt`)
 
@@ -374,6 +377,7 @@ AT&T México's Angular SPA (`main.ed09d11c356e0378a7b7.js`) applies **two distin
   - `UnitType`, `Quota`, `RemainingQuota`, `UtilizedQuota`, `Unlimited`, `EndTime`.
 
 #### Complementary AT&T Endpoints
+
 | Endpoint | Method | Plaintext Body | Purpose |
 | :--- | :--- | :--- | :--- |
 | `/api/users/getPrepaidGeneralInfo` | `POST` | `{}` | Returns `MTX_SS_GeneralInformationOutVO.GeneralInformationVO.ProductOfferName` |
@@ -462,7 +466,7 @@ In `https://mi.movistar.com.mx/compile/guard_util.js` and `index.html`:
   Authorization: <P_ID_SESSION_TOKEN>
   Content-Type: application/json
   ```
-  *(Note: `Authorization` takes the raw `p_id` / `ec_auth` value directly, **without** the `Bearer ` prefix).*
+  *(Note: `Authorization` takes the raw `p_id` / `ec_auth` value directly, **without** the `Bearer` prefix).*
 - **Encrypted Response:**
   ```json
   {
@@ -512,6 +516,7 @@ In `https://mi.movistar.com.mx/compile/guard_util.js` and `index.html`:
   - **Social Media / Minutes / SMS:** Iterate over `bolton[]` matching `i.name === "Redes Sociales"` or `i.name === "Minutos"`.
 
 #### Step 3: Complementary Movistar Endpoints (All use `Authorization: <p_id>`)
+
 | Endpoint | Method | Encrypted? | Purpose |
 | :--- | :--- | :--- | :--- |
 | `/consumptions-controller/detail-profile` | `GET` | Plain JSON strings | Returns `content.profileDetail` (`planIncluye[]`, `servAdicionales[]`) & `profileDerivativeType` |
@@ -530,4 +535,4 @@ In `https://mi.movistar.com.mx/compile/guard_util.js` and `index.html`:
    - Implement a 25-line OpenSSL `Salted__` EVP_BytesToKey + AES-256-CBC helper (`CommonCrypto` in Swift, or WebCrypto/pure-JS in Scriptable).
    - Flow: `GET /` (grab `crypto.sid` + `__sk`) $\rightarrow$ `POST /api/auth/login` $\rightarrow$ `POST /api/users/fetchUserBalances`.
 3. **Movistar México (`mi.movistar.com.mx`) — Interactive WebView Login + Cached `p_id`:**
-   - Because of Google reCAPTCHA v3 on `/login-register/authenticate`, when Running inApp (`config.runsInApp` in Scriptable), open a `WebView` to `https://mi.movistar.com.mx/login`, let the user log in once, extract `p_id` from the URL (`?p_id=...`) and `guardString`, cache `p_id` in `Keychain`, and use `GET /consumptions-controller/datos-iniciales` + WebCrypto AES-GCM decryption until `sessExp`.
+   - Because of Google reCAPTCHA v3 on `/login-register/authenticate`, when running in-app (`config.runsInApp` in Scriptable), open a `WebView` to `https://mi.movistar.com.mx/login`, let the user log in once, capture the session value (`p_id`) from `content.ec_auth` in the `/login-register/authenticate` response, cache `p_id` in `Keychain`, and use `GET /consumptions-controller/datos-iniciales` + WebCrypto AES-GCM decryption with the static `guardString` key until `sessExp`.
