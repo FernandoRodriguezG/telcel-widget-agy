@@ -62,6 +62,17 @@ Descarga la app gratuita **[Scriptable](https://apps.apple.com/app/scriptable/id
 8. En **When Interacting** (Al interactuar), selecciona **Run Script** (Ejecutar script).
 9. Toca fuera del widget para guardar. ¡Listo! El widget se actualizará periódicamente.
 
+### 6. ¿Credenciales incorrectas? Cómo restablecerlas (Resetear contraseña)
+Si ingresaste por error un número o contraseña equivocados, quedarán almacenados en el Keychain de iOS. Para borrarlos y poder ingresarlos de nuevo:
+1. Crea un nuevo script en Scriptable y nómbralo **`ResetearPassword`** (o **`resetear password`**).
+2. Pega el código de [`src/ResetearPassword.js`](src/ResetearPassword.js):
+   ```javascript
+   Keychain.remove("TELCEL_PASS");
+   Keychain.remove("TELCEL_PHONE");
+   ```
+3. Ejecútalo pulsando **Play (▶)**.
+4. Una vez restablecidas las credenciales, vuelve a abrir el script **`MiTelcel`** y pulsa **Play (▶)** para que te solicite de nuevo tu número y contraseña correctos.
+
 ---
 
 ## Método 2: Compilación Nativa en Xcode (`WidgetKit` / SwiftUI)
@@ -116,7 +127,8 @@ Puedes probar las llamadas y verificar el formato devuelto por Mi Telcel usando 
 │   └── widget_preview.png          # Captura del widget en pantalla de inicio
 ├── src/
 │   ├── MiTelcelWidget.js           # Widget autónomo Mi Telcel para Scriptable (iOS)
-│   └── MiBaitWidget.js             # Widget autónomo Mi Bait para Scriptable (iOS)
+│   ├── MiBaitWidget.js             # Widget autónomo Mi Bait para Scriptable (iOS)
+│   └── ResetearPassword.js         # Script para limpiar credenciales de Telcel en Keychain
 ├── android/
 │   ├── mitelcel_widget.mjs         # Prototipo Node.js para Termux / KWGT (Android)
 │   ├── shortcuts_mitelcel.sh       # Lanzador para Termux:Widget (~/.shortcuts)
