@@ -27,26 +27,26 @@ const COLORS = {
 };
 
 async function getCredentials() {
-  let phone = Keychain.contains("TELCEL_PHONE") ? Keychain.get("TELCEL_PHONE") : CONFIG.phone;
+  let phone = String(Keychain.contains("TELCEL_PHONE") ? Keychain.get("TELCEL_PHONE") : CONFIG.phone || "").replace(/\D/g, "").slice(-10);
   let password = Keychain.contains("TELCEL_PASS") ? Keychain.get("TELCEL_PASS") : CONFIG.password;
-  if ((!phone || phone === "5512345678" || !password || password === "TU_PASSWORD") && !config.runsInWidget) {
+  if ((phone.length !== 10 || phone === "5512345678" || !password || password === "TU_PASSWORD") && !config.runsInWidget) {
     const alert = new Alert();
     alert.title = "Configurar Mi Telcel";
     alert.message = "Tus credenciales se guardarán en el Keychain de iOS.";
-    alert.addTextField("Número a 10 dígitos", phone || "");
+    alert.addTextField("Número a 10 dígitos", phone);
     alert.addSecureTextField("Contraseña Mi Telcel", "");
     alert.addAction("Guardar");
     alert.addCancelAction("Cancelar");
     if ((await alert.presentAlert()) === 0) {
       phone = alert.textFieldValue(0).replace(/\D/g, "").slice(-10);
       password = alert.textFieldValue(1);
-      if (phone && password) {
+      if (phone.length === 10 && password) {
         Keychain.set("TELCEL_PHONE", phone);
         Keychain.set("TELCEL_PASS", password);
       }
     }
   }
-  return { phone: String(phone || "").replace(/\D/g, "").slice(-10), password };
+  return { phone, password };
 }
 
 async function main() {

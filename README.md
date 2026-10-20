@@ -1,6 +1,6 @@
-# Mi Telcel iOS Widget (WidgetKit & Scriptable)
+# Mi Telcel & Mi Bait iOS Widgets (WidgetKit & Scriptable)
 
-Widget para iOS que muestra en tiempo real los **GB disponibles combinados (Plan Base + Datos Promocionales)**, el **consumo acumulado**, los **días restantes** y la **siguiente fecha de corte/vigencia** de tu línea Mi Telcel utilizando la arquitectura de microservicios (**WebLogin SSO + JWT + Wave B2F**).
+Widgets para iOS que muestran en tiempo real los **GB disponibles combinados (Plan Base + Datos Promocionales)**, el **consumo acumulado**, los **días restantes** y la **siguiente fecha de corte/vigencia** de tu línea **Mi Telcel** o **Mi Bait**.
 
 <p align="center">
   <img src="assets/widget_preview.png" alt="Mi Telcel Widget Preview" width="280">
@@ -10,8 +10,9 @@ Widget para iOS que muestra en tiempo real los **GB disponibles combinados (Plan
 
 ## Características
 
-- **Suma inteligente de bolsas:** Combina automáticamente los datos del Plan Base (`0-0-0`) y los Datos Promocionales (`0-1-0`).
-- **Fecha de corte y vigencia:** Muestra los días restantes y la fecha de corte exacta reportada por Telcel.
+- **Soporte multi-operador (Scriptable):** Scripts independientes y listos para usar en [`src/MiTelcelWidget.js`](src/MiTelcelWidget.js) (**Telcel**) y [`src/MiBaitWidget.js`](src/MiBaitWidget.js) (**Bait**, consulta directa con solo tu número a 10 dígitos, sin contraseña).
+- **Suma inteligente de bolsas:** Combina automáticamente los datos del Plan Base y los Datos Promocionales/Bonos vigentes.
+- **Fecha de corte y vigencia:** Muestra los días restantes y la fecha de corte o vigencia exacta reportada por el operador.
 - **Medidor semicircular y presupuesto diario:** Arco bicolor (rojo gastado vs. verde disponible), porcentaje usado (`%`) y cálculo de ritmo diario disponible (`MB/d` o `GB/d`).
 - **Almacenamiento seguro:** Las credenciales nunca se guardan en texto plano; se almacenan en el **Keychain de iOS**.
 - **Caché y desconexión segura:** Guarda la última consulta en caché para carga instantánea y revoca el token SSO de Telcel al terminar para evitar bloqueos por sesiones concurrentes.
@@ -29,23 +30,26 @@ Instala y ejecuta el widget en tu iPhone directamente sin necesidad de cuenta de
 Descarga la app gratuita **[Scriptable](https://apps.apple.com/app/scriptable/id1405459188)** desde la App Store en tu iPhone.
 
 ### 2. Copiar el código del Widget
-1. Abre el archivo [`src/MiTelcelWidget.js`](src/MiTelcelWidget.js) en este repositorio.
+1. Según tu operador, abre el archivo correspondiente en este repositorio:
+   - **Telcel:** [`src/MiTelcelWidget.js`](src/MiTelcelWidget.js)
+   - **Bait:** [`src/MiBaitWidget.js`](src/MiBaitWidget.js)
 2. Copia todo su contenido al portapapeles de tu iPhone (puedes usar el Portapapeles Universal de Apple, AirDrop, o enviártelo por mensaje).
 
 ### 3. Crear el script en Scriptable
 1. Abre **Scriptable** en tu iPhone.
 2. Pulsa el botón **`+`** en la esquina superior derecha para crear un nuevo script.
-3. Toca el título en la parte superior (dice *Untitled Script*) y cámbialo a **`MiTelcel`**.
+3. Toca el título en la parte superior (dice *Untitled Script*) y cámbialo a **`MiTelcel`** o **`MiBait`**.
 4. Pega el código copiado dentro del editor.
 5. Pulsa **Done** en la esquina superior izquierda.
 
-### 4. Configurar tus credenciales por primera vez
-1. Abre nuevamente el script **MiTelcel** dentro de Scriptable.
+### 4. Configurar tus datos por primera vez
+1. Abre nuevamente el script (**MiTelcel** o **MiBait**) dentro de Scriptable.
 2. Pulsa el botón **Play (▶)** en la esquina inferior derecha.
-3. Aparecerá una alerta: **"Configurar Mi Telcel"**.
-4. Ingresa tu **número a 10 dígitos** y tu **contraseña de Mi Telcel**.
-5. Pulsa **Guardar**. Tus datos se guardarán de forma cifrada en el **Keychain de iOS**.
-6. El script ejecutará la consulta con Telcel y mostrará la vista previa del widget. Pulsa **Done**.
+3. Aparecerá una alerta de configuración:
+   - **En Mi Telcel:** Ingresa tu **número a 10 dígitos** y tu **contraseña de Mi Telcel**.
+   - **En Mi Bait:** Ingresa únicamente tu **número Bait a 10 dígitos** (no requiere contraseña).
+4. Pulsa **Guardar**. Tus datos se guardarán en el **Keychain de iOS**.
+5. El script ejecutará la consulta y mostrará la vista previa del widget. Pulsa **Done**.
 
 ### 5. Agregar el Widget a tu Pantalla de Inicio
 1. Ve a la pantalla de inicio de tu iPhone.
@@ -54,7 +58,7 @@ Descarga la app gratuita **[Scriptable](https://apps.apple.com/app/scriptable/id
 4. Busca y selecciona **Scriptable**.
 5. Elige el tamaño **Pequeño (Small)** y toca **Agregar widget**.
 6. Mientras los íconos sigan temblando, toca el widget recién agregado (o mantenlo presionado y selecciona **Editar widget**).
-7. En el campo **Script**, selecciona **MiTelcel**.
+7. En el campo **Script**, selecciona **`MiTelcel`** o **`MiBait`**.
 8. En **When Interacting** (Al interactuar), selecciona **Run Script** (Ejecutar script).
 9. Toca fuera del widget para guardar. ¡Listo! El widget se actualizará periódicamente.
 
@@ -111,7 +115,8 @@ Puedes probar las llamadas y verificar el formato devuelto por Mi Telcel usando 
 ├── assets/
 │   └── widget_preview.png          # Captura del widget en pantalla de inicio
 ├── src/
-│   └── MiTelcelWidget.js           # Implementación autónoma para Scriptable (iOS)
+│   ├── MiTelcelWidget.js           # Widget autónomo Mi Telcel para Scriptable (iOS)
+│   └── MiBaitWidget.js             # Widget autónomo Mi Bait para Scriptable (iOS)
 ├── android/
 │   ├── mitelcel_widget.mjs         # Prototipo Node.js para Termux / KWGT (Android)
 │   ├── shortcuts_mitelcel.sh       # Lanzador para Termux:Widget (~/.shortcuts)
@@ -126,7 +131,8 @@ Puedes probar las llamadas y verificar el formato devuelto por Mi Telcel usando 
 ├── .agents/skills/telcel-api-probe/
 │   ├── SKILL.md                    # Skill para pruebas de API Telcel
 │   └── scripts/probe_telcel.sh     # CLI de autenticación y extracción de esquema
-├── Telcel Widget API.md            # Especificación técnica del API Wave B2F
+├── Telcel Widget API.md            # Especificación técnica del API Wave B2F (Telcel)
+├── Mexican Carriers Widget API.md  # Especificación de APIs para Bait, AT&T y Movistar
 ├── API Validation.md               # Guía de validación manual con curl
 └── Research.md                     # Bitácora técnica y arquitectura de endpoints
 ```
