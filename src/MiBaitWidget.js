@@ -11,6 +11,11 @@ const CONFIG = {
   phone: "", // Se guarda en el Keychain de iOS al ejecutar el script en la app
   useMockData: false,
   cacheFileName: "mibait_usage_cache.json",
+  // SECURITY NOTE: This ordServiceKey is intentionally hardcoded.
+  // It is a public API key extracted from the client-side JavaScript of mibait.com
+  // and is NOT a sensitive secret. It is kept here as a necessary fallback for the
+  // Scriptable iOS widget environment which lacks a dedicated secrets manager,
+  // in case the dynamic fetch fails.
   // shortcut: static Ordenaris service key from mibait.com bundle, rotate or switch to /conn/page/api/app/consumoV3 if revoked
   ordServiceKey: "57bfb26735aa4ec3a1baafa864006d7d"
 };
@@ -479,5 +484,5 @@ if (typeof Script !== "undefined") {
   main();
 }
 if (typeof module !== "undefined") {
-  module.exports = { fetchBaitData, parseBaitResponse, createWidget, loadCache };
+  module.exports = { fetchBaitData, parseBaitResponse, createWidget, loadCache, fetchServiceKey, CONFIG };
 }
