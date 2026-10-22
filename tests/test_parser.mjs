@@ -482,6 +482,84 @@ assert.equal((await runReset(-1)).length, 5);
 // 2. Test Swift parser with the same fixture, error rejection, phone normalization & footerText
 const swiftSource = readFileSync("MiTelcelWidget/TelcelNetworkService.swift", "utf8");
 const swiftTest = `${swiftSource}
+class MockURLProtocol: URLProtocol {
+    static var requestHandler: ((URLRequest) throws -> (HTTPURLResponse, Data))?
+
+    override class func canInit(with request: URLRequest) -> Bool {
+        return true
+    }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
+        return request
+    }
+
+    override func startLoading() {
+        guard let handler = MockURLProtocol.requestHandler else { return }
+        do {
+            let (response, data) = try handler(request)
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: data)
+            client?.urlProtocolDidFinishLoading(self)
+        } catch {
+            client?.urlProtocol(self, didFailWithError: error)
+        }
+    }
+
+    override func stopLoading() {}
+}
+
+extension TelcelNetworkService {
+    static func testRevokeSSOToken() async throws {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [MockURLProtocol.self]
+        let session = URLSession(configuration: config)
+
+        // Happy path
+        var requestCount = 0
+        MockURLProtocol.requestHandler = { request in
+            requestCount += 1
+            assert(request.url?.absoluteString == "https://dev.smapps.mx:9000/sso/revoke")
+            assert(request.httpMethod == "POST")
+            assert(request.value(forHTTPHeaderField: "Content-Type") == "application/x-www-form-urlencoded")
+            let bodyString = String(data: request.httpBody ?? Data(), encoding: .utf8)
+            assert(bodyString == "token=test_token_123&token_type=revoke")
+            return (HTTPURLResponse(), Data())
+        }
+        await revokeSSOToken("test_token_123", session: session)
+        assert(requestCount == 1)
+
+        // Empty token
+        requestCount = 0
+        MockURLProtocol.requestHandler = { request in
+            requestCount += 1
+            let bodyString = String(data: request.httpBody ?? Data(), encoding: .utf8)
+            assert(bodyString == "token=&token_type=revoke")
+            return (HTTPURLResponse(), Data())
+        }
+        await revokeSSOToken("", session: session)
+        assert(requestCount == 1)
+
+        // Edge case: URL encoding check
+        requestCount = 0
+        MockURLProtocol.requestHandler = { request in
+            requestCount += 1
+            let bodyString = String(data: request.httpBody ?? Data(), encoding: .utf8)
+            // URLComponents percent encodes +, =, &, space, and %
+            assert(bodyString == "token=token%2B%3D%26%20weird%25chars&token_type=revoke")
+            return (HTTPURLResponse(), Data())
+        }
+        await revokeSSOToken("token+=& weird%chars", session: session)
+        assert(requestCount == 1)
+    }
+}
+
+let sem = DispatchSemaphore(value: 0)
+Task {
+    try await TelcelNetworkService.testRevokeSSOToken()
+    sem.signal()
+}
+sem.wait()
+
 let json = #"""
 ${JSON.stringify(fixture)}
 """#.data(using: .utf8)!
