@@ -248,6 +248,14 @@ function parseBaitResponse(payload, now = new Date()) {
   const hh = String(now.getHours()).padStart(2, "0");
   const mm = String(now.getMinutes()).padStart(2, "0");
 
+  let promo = false;
+  for (let i = 0; i < buckets.length; i++) {
+    if (buckets[i].id === "Benefits") {
+      promo = true;
+      break;
+    }
+  }
+
   return {
     consumedMB,
     totalMB,
@@ -256,7 +264,7 @@ function parseBaitResponse(payload, now = new Date()) {
     cutoffDate,
     cutoffISO,
     planName: isUnlimited ? "Bait Ilimitado" : "Mi Bait",
-    promo: buckets.some(b => b.id === "Benefits"),
+    promo,
     buckets,
     updatedAt: `${hh}:${mm}`,
     fromCache: false

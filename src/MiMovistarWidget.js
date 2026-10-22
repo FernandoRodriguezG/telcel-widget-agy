@@ -380,9 +380,16 @@ function parseMovistarResponse(payload, now = new Date()) {
     throw new Error("Sin bolsas de navegación activas en la línea Movistar");
   }
 
-  const totalMB = buckets.reduce((sum, b) => sum + b.totalMB, 0);
-  const consumedMB = buckets.reduce((sum, b) => sum + b.consumedMB, 0);
-  const availableMB = buckets.reduce((sum, b) => sum + b.availableMB, 0);
+  let totalMB = 0;
+  let consumedMB = 0;
+  let availableMB = 0;
+
+  for (let i = 0; i < buckets.length; i++) {
+    const b = buckets[i];
+    totalMB += b.totalMB;
+    consumedMB += b.consumedMB;
+    availableMB += b.availableMB;
+  }
 
   const daysLeft = maxExpire ? daysUntil(maxExpire, now) : 0;
   const cutoffDate = maxExpire
