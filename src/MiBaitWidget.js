@@ -42,7 +42,7 @@ async function getCredentials() {
   if ((phone.length !== 10 || phone === "5512345678") && !config.runsInWidget) {
     const alert = new Alert();
     alert.title = "Configurar Mi Bait";
-    alert.message = "Ingresa tu número Bait a 10 dígitos (no requiere contraseña).";
+    alert.message = "Para mostrar tu consumo en vivo, ingresa tu número Bait. Se guardará de forma segura en tu dispositivo.";
     alert.addTextField("Número a 10 dígitos", phone);
     alert.addAction("Guardar");
     alert.addCancelAction("Cancelar");
@@ -283,9 +283,19 @@ function createWidget(data) {
   w.url = "https://mibait.com/home";
 
   if (!data) {
-    const errTxt = w.addText("Sin datos de Mi Bait. Verificar número o red.");
+    w.addSpacer();
+    const errStack = w.addStack();
+    errStack.layoutVertically();
+    errStack.centerAlignContent();
+    const iconTxt = errStack.addText("⚠️");
+    iconTxt.font = Font.systemFont(24);
+    iconTxt.centerAlignText();
+    errStack.addSpacer(8);
+    const errTxt = errStack.addText("No pudimos cargar tus datos. Toca el widget para revisar tu conexión o número.");
     errTxt.textColor = COLORS.white;
     errTxt.font = Font.mediumSystemFont(12);
+    errTxt.centerAlignText();
+    w.addSpacer();
     return w;
   }
 

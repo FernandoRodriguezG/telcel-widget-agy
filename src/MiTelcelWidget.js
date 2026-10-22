@@ -32,7 +32,7 @@ async function getCredentials() {
   if ((phone.length !== 10 || phone === "5512345678" || !password || password === "TU_PASSWORD") && !config.runsInWidget) {
     const alert = new Alert();
     alert.title = "Configurar Mi Telcel";
-    alert.message = "Tus credenciales se guardarán en el Keychain de iOS.";
+    alert.message = "Para mostrar tu consumo en vivo, ingresa tus datos. Se guardarán de forma segura en tu dispositivo.";
     alert.addTextField("Número a 10 dígitos", phone);
     alert.addSecureTextField("Contraseña Mi Telcel", "");
     alert.addAction("Guardar");
@@ -422,9 +422,19 @@ function createWidget(data) {
   w.url = "https://www.mitelcel.com/mitelcel/login";
 
   if (!data) {
-    const errTxt = w.addText("Sin datos de Mi Telcel. Verificar credenciales o red.");
+    w.addSpacer();
+    const errStack = w.addStack();
+    errStack.layoutVertically();
+    errStack.centerAlignContent();
+    const iconTxt = errStack.addText("⚠️");
+    iconTxt.font = Font.systemFont(24);
+    iconTxt.centerAlignText();
+    errStack.addSpacer(8);
+    const errTxt = errStack.addText("No pudimos cargar tus datos. Toca el widget para revisar tu conexión o credenciales.");
     errTxt.textColor = COLORS.white;
     errTxt.font = Font.mediumSystemFont(12);
+    errTxt.centerAlignText();
+    w.addSpacer();
     return w;
   }
 
