@@ -40,7 +40,7 @@ async function getCredentials() {
     if ((await alert.presentAlert()) === 0) {
       phone = alert.textFieldValue(0).replace(/\D/g, "").slice(-10);
       password = alert.textFieldValue(1);
-      if (phone.length === 10 && password) {
+      if (phone.length === 10 && phone !== "5512345678" && password && password !== "TU_PASSWORD") {
         Keychain.set("TELCEL_PHONE", phone);
         Keychain.set("TELCEL_PASS", password);
       }

@@ -548,31 +548,40 @@ const runGetCredentialsTest = async () => {
     // Case 5: invalid credentials, runsInWidget=false, save valid inputs
     globalThis.config = { runsInWidget: false };
     alertActionResponse = 0; // 0 means Save usually
-    textFieldValues = ["+52 55 1234-5678", "mypass123"];
+    textFieldValues = ["+52 55 1234-5679", "test_placeholder_pw"];
     keychainStore.clear();
     creds = await getCredentials();
-    assert.equal(creds.phone, "5512345678"); // stripped formatting
-    assert.equal(creds.password, "mypass123");
-    assert.equal(keychainStore.get("TELCEL_PHONE"), "5512345678");
-    assert.equal(keychainStore.get("TELCEL_PASS"), "mypass123");
+    assert.equal(creds.phone, "5512345679"); // stripped formatting
+    assert.equal(creds.password, "test_placeholder_pw");
+    assert.equal(keychainStore.get("TELCEL_PHONE"), "5512345679");
+    assert.equal(keychainStore.get("TELCEL_PASS"), "test_placeholder_pw");
 
     // Case 6: valid inputs containing non-numeric, save valid
     alertActionResponse = 0;
-    textFieldValues = ["55abc12345678x", "newpass"];
+    textFieldValues = ["55abc12345679x", "test_placeholder_pw2"];
     keychainStore.clear();
     creds = await getCredentials();
-    assert.equal(creds.phone, "5512345678"); // strips abc and x
-    assert.equal(creds.password, "newpass");
-    assert.equal(keychainStore.get("TELCEL_PHONE"), "5512345678");
-    assert.equal(keychainStore.get("TELCEL_PASS"), "newpass");
+    assert.equal(creds.phone, "5512345679"); // strips abc and x
+    assert.equal(creds.password, "test_placeholder_pw2");
+    assert.equal(keychainStore.get("TELCEL_PHONE"), "5512345679");
+    assert.equal(keychainStore.get("TELCEL_PASS"), "test_placeholder_pw2");
 
     // Case 7: invalid inputs (short phone), don't save to Keychain
     alertActionResponse = 0;
-    textFieldValues = ["12345", "pass"];
+    textFieldValues = ["12345", "test_placeholder_pw"];
     keychainStore.clear();
     creds = await getCredentials();
     assert.equal(creds.phone, "12345");
-    assert.equal(creds.password, "pass");
+    assert.equal(creds.password, "test_placeholder_pw");
+    assert.equal(keychainStore.has("TELCEL_PHONE"), false);
+
+    // Case 7b: invalid inputs (rejected phone 5512345678), don't save to Keychain
+    alertActionResponse = 0;
+    textFieldValues = ["5512345678", "test_placeholder_pw"];
+    keychainStore.clear();
+    creds = await getCredentials();
+    assert.equal(creds.phone, "5512345678");
+    assert.equal(creds.password, "test_placeholder_pw");
     assert.equal(keychainStore.has("TELCEL_PHONE"), false);
 
     // Case 8: invalid inputs (empty pass), don't save to Keychain
