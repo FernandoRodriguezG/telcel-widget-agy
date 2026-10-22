@@ -84,7 +84,8 @@ async function getCredentials(validator = validateBaitCredentials) {
       alert.message = isError
         ? "Número incorrecto. Por favor, ingresa tu número Bait a 10 dígitos nuevamente."
         : "Para mostrar tu consumo en vivo, ingresa tu número Bait a 10 dígitos (no requiere contraseña). Se guardará de forma segura en tu dispositivo.";
-      alert.addTextField("Número a 10 dígitos", phone);
+      const phoneField = alert.addTextField("Número a 10 dígitos", phone);
+      phoneField.setPhonePadKeyboard();
       alert.addAction("Guardar");
       alert.addCancelAction("Cancelar");
       if ((await alert.presentAlert()) !== 0) {
