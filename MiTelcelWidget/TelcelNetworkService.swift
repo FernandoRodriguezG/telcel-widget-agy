@@ -265,7 +265,7 @@ public actor TelcelNetworkService {
                 URLQueryItem(name: "pB64", value: passB64),
                 URLQueryItem(name: "url", value: "https://wbl.telcel-id.com:8443")
             ]
-            loginReq.httpBody = comps.percentEncodedQuery?.data(using: .utf8)
+            loginReq.httpBody = comps.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B").data(using: .utf8)
 
             let (loginData, _) = try await session.data(for: loginReq)
             guard let loginObj = try JSONSerialization.jsonObject(with: loginData) as? [String: Any],
@@ -344,7 +344,7 @@ public actor TelcelNetworkService {
             URLQueryItem(name: "token", value: token),
             URLQueryItem(name: "token_type", value: "revoke")
         ]
-        req.httpBody = comps.percentEncodedQuery?.data(using: .utf8)
+        req.httpBody = comps.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B").data(using: .utf8)
         _ = try? await session.data(for: req)
     }
 
