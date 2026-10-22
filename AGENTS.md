@@ -1,12 +1,42 @@
-# Guía del Proyecto: Mi Telcel iOS Widget & API Probe
+# Guía del Proyecto: Widgets de Consumo Móvil (Telcel, Bait, AT&T, Movistar)
 
-## Reglas de Seguridad y Sesión
-- **NUNCA** leas, imprimas ni incluyas el contenido del archivo `.env` o `cookies.txt` en tus respuestas o artefactos.
-- Para probar los endpoints de Telcel, utiliza exclusivamente la skill `.agents/skills/telcel-api-probe/SKILL.md` (o el comando `/telcel-api-probe`).
-- El backend de Mi Telcel bloquea sesiones concurrentes si no se revoca el token SSO al finalizar (`POST https://dev.smapps.mx:9000/sso/revoke`). El script `probe_telcel.sh` ya incluye un `trap` de salida para garantizar el cierre de sesión.
+## 1. Reglas Inquebrantables de Seguridad y Sesión
+- **Secretos locales:** **NUNCA** leas, imprimas ni incluyas el contenido de `.env` o `cookies.txt` en respuestas, logs o artefactos.
+- **Almacenamiento en dispositivo:** Las credenciales se guardan exclusivamente en el **Keychain de iOS** (`TELCEL_PHONE`/`TELCEL_PASS`, `BAIT_PHONE` y `MOVISTAR_PID`/`MOVISTAR_GUARD_KEY` en Scriptable; `kSecClassGenericPassword` bajo `mx.mitelcel.widget` en Swift). Nunca hardcodees números ni contraseñas reales.
+- **Revocación SSO obligatoria (Telcel):** El backend de Mi Telcel bloquea sesiones concurrentes si no se revoca el token SSO al terminar (`POST https://dev.smapps.mx:9000/sso/revoke` con `token={sso_token}&token_type=revoke`). Todo cliente ([`src/MiTelcelWidget.js`](src/MiTelcelWidget.js), [`MiTelcelWidget/TelcelNetworkService.swift`](MiTelcelWidget/TelcelNetworkService.swift), [`probe_telcel.sh`](.agents/skills/telcel-api-probe/scripts/probe_telcel.sh)) debe ejecutar la revocación en un bloque `finally` / `defer` / `trap`.
+- **Pruebas en vivo de Telcel:** Usa exclusivamente la skill [`.agents/skills/telcel-api-probe/SKILL.md`](.agents/skills/telcel-api-probe/SKILL.md) (`zsh .agents/skills/telcel-api-probe/scripts/probe_telcel.sh`) e inspecciona solo `artifacts/probe_report.txt` y `artifacts/schema_summary.json` (salvo autorización expresa del usuario para otros JSON en `artifacts/`).
 
-## Flujo de Trabajo del Agente
-1. Ejecuta `.agents/skills/telcel-api-probe/scripts/probe_telcel.sh`.
-2. Inspecciona únicamente el esquema sanitizado generado en `artifacts/schema_summary.json` y el resumen en `artifacts/probe_report.txt` (o los JSON en `artifacts/` si el usuario lo autoriza). Consulta [`Telcel Widget API.md`](file:///Users/armandomaynez/Code/Repos/telcel-widget-agy/Telcel%20Widget%20API.md) para la especificación de bloques Wave B2F.
-3. Con base en las llaves reales del JSON devuelto por Telcel (`api.journeys.telcel.wavebybemobi.com/api/components/flow/home`), actualiza [`MiTelcelWidget/TelcelNetworkService.swift`](file:///Users/armandomaynez/Code/Repos/telcel-widget-agy/MiTelcelWidget/TelcelNetworkService.swift) y `parseTelcelResponse(payload)` en [`src/MiTelcelWidget.js`](file:///Users/armandomaynez/Code/Repos/telcel-widget-agy/src/MiTelcelWidget.js) para sumar todas las bolsas de datos (`0-0-0` Plan Base + `0-1-0` Datos Promocionales) y extraer la fecha de corte (`plan-details-row-template-col-2-0-0`).
-4. Si el flujo de login SSO (`wbl.telcel-id.com:8443/login`) o el intercambio de token (`mi-telcel.smapps.mx/security/1.0.0/v2/token`) cambia, utiliza el navegador integrado para inspeccionar el iframe/bundle o indica al usuario cómo capturar el comando cURL.
+## 2. Mapa del Repositorio
+- [`src/MiTelcelWidget.js`](src/MiTelcelWidget.js): Widget autónomo de **Mi Telcel** para Scriptable (iOS) y módulo reutilizable en Node.js (`fetchTelcelData`, `parseTelcelResponse`, `createWidget`). Usa `1 GB = 1000 MB` para etiquetas comerciales de Telcel y `1 MB = 1024 KB` para gráficas.
+- [`src/MiBaitWidget.js`](src/MiBaitWidget.js): Widget autónomo de **Mi Bait** (Walmart/Altán) para Scriptable (`fetchBaitData`, `parseBaitResponse`, `createWidget`, `loadCache`). Usa `1 GB = 1024 MB`, persiste `cutoffISO` (`YYYY-MM-DD`) y recalcula `daysLeft` al leer caché.
+- [`src/MiMovistarWidget.js`](src/MiMovistarWidget.js): Widget autónomo de **Mi Movistar** para Scriptable (`fetchMovistarData`, `parseMovistarResponse`, `decryptMovistarContent`, `createWidget`, `loadCache`). Captura `p_id` en `WebView` por reCAPTCHA v3, desencripta con AES-256-GCM (`guardKey`), usa `1 GB = 1024 MB`, persiste `cutoffISO` y recalcula `daysLeft` en caché.
+- [`src/ResetearPassword.js`](src/ResetearPassword.js): Script de Scriptable que borra del Keychain las credenciales del operador elegido (`TELCEL_PHONE`/`TELCEL_PASS`, `BAIT_PHONE`, `MOVISTAR_PID`) o de todos. Si agregas un operador o una llave de Keychain, actualiza su mapa `KEYCHAIN_KEYS`.
+- [`MiTelcelWidget/TelcelNetworkService.swift`](MiTelcelWidget/TelcelNetworkService.swift), [`MiTelcelWidget/MiTelcelWidget.swift`](MiTelcelWidget/MiTelcelWidget.swift) y [`MiTelcelApp/MiTelcelApp.swift`](MiTelcelApp/MiTelcelApp.swift): App contenedora y extensión nativa **WidgetKit / SwiftUI (iOS 17+)** con `AppIntentConfiguration`, recarga interactiva (`RefreshTelcelUsageIntent`) y vista compartida `MiTelcelWidgetCardContent`.
+- [`android/mitelcel_widget.mjs`](android/mitelcel_widget.mjs) y [`android/shortcuts_mitelcel.sh`](android/shortcuts_mitelcel.sh): Prototipo CLI para Termux:Widget / KWGT que importa `fetchTelcelData` de `src/MiTelcelWidget.js` (no probado en hardware Android físico).
+- [`tests/test_parser.mjs`](tests/test_parser.mjs): Suite de pruebas sin dependencias externas que valida en un solo comando los parsers JS (Telcel, Bait y Movistar con descifrado AES-GCM simulado sin red), `ResetearPassword`, el renderizado `DrawContext`, el resumen Android y el parser nativo Swift (`swift -`).
+- Documentación técnica de APIs: [`Telcel Widget API.md`](Telcel%20Widget%20API.md), [`Mexican Carriers Widget API.md`](Mexican%20Carriers%20Widget%20API.md), [`API Validation.md`](API%20Validation.md) y [`Research.md`](Research.md).
+
+## 3. Especificación de Operadores y Reglas de Parseo
+- **Telcel ([`Telcel Widget API.md`](Telcel%20Widget%20API.md)):**
+  1. `POST https://wbl.telcel-id.com:8443/login` (`username`, `telcel-pass`, `pB64` = contraseña sin espacios en Base64) $\rightarrow$ `302 /Auth` $\rightarrow$ `{ token }`.
+  2. `GET https://mi-telcel.smapps.mx/security/1.0.0/v2/token?user={phone}&token={sso}` (`Authorization: Basic bXRwc2VydmljZXM6NyQ4N3JmRnN3ZSQyMV8=`, `scope: token:mit|token:b2f`) $\rightarrow$ `token:b2f`.
+  3. `GET https://api.journeys.telcel.wavebybemobi.com/api/components/flow/home?externalCode=52{phone}` (`Authorization: Bearer <token:b2f>`).
+  4. Indexar recursivamente `blocks.children` por `id`, descubrir todos los sufijos `tabs-plans-v2-plan-name-(\d+-\d+-\d+)` ordenados numéricamente (`0-0-0` Plan Base, `0-1-0` Datos Promocionales, etc.), descartar bolsas vacías (`totalMB == 0 && availableMB == 0`), sumar `consumedMB`, `totalMB` y `availableMB`, extraer `daysLeft` de `tabs-plans-v2-limited-cutoff-message-*` y `cutoffDate` de `plan-details-row-template-col-2-0-0` (fallback `...-col-2-web-0-0`).
+- **Bait ([`Mexican Carriers Widget API.md`](Mexican%20Carriers%20Widget%20API.md#L22-L196)):**
+  - Consulta directa sin contraseña: `GET https://mibait.com/api/core/q/dn/{10_digitos}/get/consumption` con header `x-ord-service: 57bfb26735aa4ec3a1baafa864006d7d`.
+  - Sumar bolsas `BestEffort` + `Throttling` (`resume.total`, `resume.unused` en MB) y ofertas vigentes en `Benefits.offers_detail[]` (`expire_date >= hoy`). Ignorar `SocialMedia`, `Minutes` y `Message` tanto en la suma de MB como en el cálculo de `maxExpire` (`cutoffDate` / `daysLeft`).
+  - Fallback autenticado si cambia el endpoint público: `POST /conn/page/api/bait/api/aplicacion/acceso` + `POST /conn/page/api/app/consumoV3` (`ordServicio: d1adeb1327644c339671f7bc9f3e0789`).
+- **AT&T México y Movistar México ([`Mexican Carriers Widget API.md`](Mexican%20Carriers%20Widget%20API.md#L199-L538)):**
+  - **AT&T (`miattweb.att.com.mx`):** Sin CAPTCHA. `GET /` entrega cookie `crypto.sid` y `<meta name="__sk">`. Usa doble cifrado `CryptoJS.AES` (OpenSSL `Salted__` EVP_BytesToKey MD5 + AES-256-CBC): contraseña con llave estática `f758a9b0ea88f03fa3d4e2f0876b11d6`, y cuerpos `{ encrypted_data }` + header `Authorization: Bearer <AES(token, __sk)>` con `__sk` (`X-Crypto-Channel: session`) hacia `POST /api/users/fetchUserBalances`.
+  - **Movistar (`mi.movistar.com.mx`):** `POST /login-register/authenticate` exige Google reCAPTCHA v3 (`6LcvRzseAAAAAAv639uV9uh6vRHRBSi0Jk_fsaRf`) + Cloudflare (`__cf_bm`), por lo que requiere login interactivo en `WebView` para capturar `ec_auth` (`p_id`). Consumos en `GET /consumptions-controller/datos-iniciales` (`Authorization: <p_id>` sin `Bearer`), cifrados con AES-256-GCM (`<base64url_cipher>:<base64url_12B_iv>`). La llave `guardKey` (32 caracteres) es el Base64-decodificado de `guardString` publicado en `https://mi.movistar.com.mx/login`: se descubre dinámicamente, se guarda en Keychain (`MOVISTAR_GUARD_KEY`) y se vuelve a descubrir si el descifrado falla (rotación). El valor conocido (`03818954072261267933921453028068`) es solo respaldo cuando `/login` no responde; nunca la uses como única llave.
+
+## 4. Convenciones de UI y Verificación
+- **Diseño del Widget Small (`#111111`):**
+  - Header: Marca + fecha abreviada (`Corte 28 oct` / `Vigencia 1 nov`) a la izquierda; píldora de días restantes a la derecha con semáforo (`<=2` rojo `#FF453A`, `<=5` amarillo `#FFD60A`, `>5` blanco).
+  - Gauge semicircular bicolor: arco izquierdo rojo (`#FF453A`, gastado), arco derecho verde (`#32D74B`, disponible) con separación cuando ambos coexisten, y solo riel gris (`#2C2C2E`) cuando `totalMB == 0`.
+  - Fila inferior y pie: gastado (`● X GB (Y%)`) vs presupuesto diario (`● Z MB/d` o `GB/d`), seguido de `Plan+Promo` / `Plan+Bono`, hora `⏱ HH:MM` e indicador `☁️` si es caché.
+- **Verificación obligatoria tras cambios de código:**
+  1. Ejecutar `node tests/test_parser.mjs` (valida JS y Swift).
+  2. Si se toca código Swift o el proyecto Xcode, validar compilación con:
+     `xcodebuild -project MiTelcelWidget.xcodeproj -scheme MiTelcelApp -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build`
+
