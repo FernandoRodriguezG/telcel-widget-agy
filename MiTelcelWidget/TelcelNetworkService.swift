@@ -123,13 +123,29 @@ public actor TelcelNetworkService {
             kSecAttrService: "mx.mitelcel.widget",
             kSecAttrAccount: key
         ]
-        SecItemDelete(query as CFDictionary)
-        guard !value.isEmpty, let data = value.data(using: .utf8) else { return true }
-        var attrs = query
-        attrs[kSecValueData] = data
-        attrs[kSecAttrAccessible] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        let status = SecItemAdd(attrs as CFDictionary, nil)
-        return status == errSecSuccess
+
+        if value.isEmpty {
+            SecItemDelete(query as CFDictionary)
+            return true
+        }
+
+        guard let data = value.data(using: .utf8) else { return false }
+
+        let attrsToUpdate: [CFString: Any] = [
+            kSecValueData: data
+        ]
+
+        let updateStatus = SecItemUpdate(query as CFDictionary, attrsToUpdate as CFDictionary)
+        if updateStatus == errSecSuccess { return true }
+
+        if updateStatus == errSecItemNotFound {
+            var attrsToAdd = query
+            attrsToAdd[kSecValueData] = data
+            attrsToAdd[kSecAttrAccessible] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+            return SecItemAdd(attrsToAdd as CFDictionary, nil) == errSecSuccess
+        }
+
+        return false
     }
 
     private static func migrateKeychainAccessibilityIfNeeded() {
@@ -139,18 +155,21 @@ public actor TelcelNetworkService {
 
         var allSucceeded = true
         for key in keys {
-            let query: [CFString: Any] = [
-                kSecClass: kSecClassGenericPassword,
-                kSecAttrService: "mx.mitelcel.widget",
-                kSecAttrAccount: key
-            ]
-            let attrsToUpdate: [CFString: Any] = [
-                kSecAttrAccessible: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-            ]
-            let status = SecItemUpdate(query as CFDictionary, attrsToUpdate as CFDictionary)
-            // If the item doesn't exist (errSecItemNotFound), it doesn't need migrating, so treat it as success.
-            if status != errSecSuccess && status != errSecItemNotFound {
-                allSucceeded = false
+            if let value = getKeychain(key) {
+                let query: [CFString: Any] = [
+                    kSecClass: kSecClassGenericPassword,
+                    kSecAttrService: "mx.mitelcel.widget",
+                    kSecAttrAccount: key
+                ]
+                SecItemDelete(query as CFDictionary)
+
+                var attrsToAdd = query
+                attrsToAdd[kSecValueData] = value.data(using: .utf8)!
+                attrsToAdd[kSecAttrAccessible] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+                let status = SecItemAdd(attrsToAdd as CFDictionary, nil)
+                if status != errSecSuccess {
+                    allSucceeded = false
+                }
             }
         }
         if allSucceeded {
