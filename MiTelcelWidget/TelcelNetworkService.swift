@@ -525,7 +525,7 @@ public struct MiTelcelWidgetCardContent: View {
     }
 
     public var body: some View {
-        if entry.totalMB == 0 && entry.cutoffDate == "Verificar cuenta" {
+        if entry == .errorFallback {
             VStack(alignment: .center, spacing: 8) {
                 Text("⚠️")
                     .font(.system(size: 24))

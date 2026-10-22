@@ -42,7 +42,7 @@ async function getCredentials() {
   if ((phone.length !== 10 || phone === "5512345678") && !config.runsInWidget) {
     const alert = new Alert();
     alert.title = "Configurar Mi Bait";
-    alert.message = "Para mostrar tu consumo en vivo, ingresa tu número Bait. Se guardará de forma segura en tu dispositivo.";
+    alert.message = "Para mostrar tu consumo en vivo, ingresa tu número Bait a 10 dígitos (no requiere contraseña). Se guardará de forma segura en tu dispositivo.";
     alert.addTextField("Número a 10 dígitos", phone);
     alert.addAction("Guardar");
     alert.addCancelAction("Cancelar");
@@ -271,15 +271,13 @@ function createWidget(data) {
   w.url = "https://mibait.com/home";
 
   if (!data) {
+    w.url = "scriptable:///run?scriptName=" + (typeof Script !== "undefined" ? encodeURIComponent(Script.name()) : "");
     w.addSpacer();
-    const errStack = w.addStack();
-    errStack.layoutVertically();
-    errStack.centerAlignContent();
-    const iconTxt = errStack.addText("⚠️");
+    const iconTxt = w.addText("⚠️");
     iconTxt.font = Font.systemFont(24);
     iconTxt.centerAlignText();
-    errStack.addSpacer(8);
-    const errTxt = errStack.addText("No pudimos cargar tus datos. Toca el widget para revisar tu conexión o número.");
+    w.addSpacer(8);
+    const errTxt = w.addText("No pudimos cargar tus datos. Abre Scriptable para revisar tu conexión o número.");
     errTxt.textColor = COLORS.white;
     errTxt.font = Font.mediumSystemFont(12);
     errTxt.centerAlignText();

@@ -28,12 +28,14 @@ struct ContentView: View {
                 VStack(spacing: 20) {
                     VStack(alignment: .leading, spacing: 0) {
                         MiTelcelWidgetCardContent(entry: entry)
-                        Spacer(minLength: 8)
-                        Text(entry.footerText)
-                            .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.8)
+                        if entry != .errorFallback {
+                            Spacer(minLength: 8)
+                            Text(entry.footerText)
+                                .font(.system(size: 11))
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.8)
+                        }
                     }
                     .padding(16)
                     .frame(width: 170, height: 170)

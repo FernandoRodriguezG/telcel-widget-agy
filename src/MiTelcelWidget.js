@@ -422,15 +422,13 @@ function createWidget(data) {
   w.url = "https://www.mitelcel.com/mitelcel/login";
 
   if (!data) {
+    w.url = "scriptable:///run?scriptName=" + (typeof Script !== "undefined" ? encodeURIComponent(Script.name()) : "");
     w.addSpacer();
-    const errStack = w.addStack();
-    errStack.layoutVertically();
-    errStack.centerAlignContent();
-    const iconTxt = errStack.addText("⚠️");
+    const iconTxt = w.addText("⚠️");
     iconTxt.font = Font.systemFont(24);
     iconTxt.centerAlignText();
-    errStack.addSpacer(8);
-    const errTxt = errStack.addText("No pudimos cargar tus datos. Toca el widget para revisar tu conexión o credenciales.");
+    w.addSpacer(8);
+    const errTxt = w.addText("No pudimos cargar tus datos. Abre Scriptable para revisar tu conexión o credenciales.");
     errTxt.textColor = COLORS.white;
     errTxt.font = Font.mediumSystemFont(12);
     errTxt.centerAlignText();

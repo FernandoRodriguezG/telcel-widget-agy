@@ -67,7 +67,7 @@ async function loginWithWebView() {
   if (!capturedPid && typeof Alert !== "undefined" && typeof config !== "undefined" && !config.runsInWidget) {
     const alert = new Alert();
     alert.title = "Configurar Mi Movistar";
-    alert.message = "Para mostrar tu consumo en vivo, pega tu token p_id. Se guardará de forma segura en tu dispositivo.";
+    alert.message = "Para mostrar tu consumo en vivo, pega tu token p_id (ec_auth) si ya iniciaste sesión en el portal. Se guardará de forma segura en tu dispositivo.";
     alert.addSecureTextField("Token p_id", "");
     alert.addAction("Guardar");
     alert.addCancelAction("Cancelar");
@@ -422,15 +422,13 @@ function createWidget(data) {
   w.url = "https://mi.movistar.com.mx/consumptions";
 
   if (!data) {
+    w.url = "scriptable:///run?scriptName=" + (typeof Script !== "undefined" ? encodeURIComponent(Script.name()) : "");
     w.addSpacer();
-    const errStack = w.addStack();
-    errStack.layoutVertically();
-    errStack.centerAlignContent();
-    const iconTxt = errStack.addText("⚠️");
+    const iconTxt = w.addText("⚠️");
     iconTxt.font = Font.systemFont(24);
     iconTxt.centerAlignText();
-    errStack.addSpacer(8);
-    const errTxt = errStack.addText("No pudimos cargar tus datos. Toca el widget para iniciar sesión de nuevo.");
+    w.addSpacer(8);
+    const errTxt = w.addText("No pudimos cargar tus datos. Abre Scriptable para iniciar sesión de nuevo.");
     errTxt.textColor = COLORS.white;
     errTxt.font = Font.mediumSystemFont(12);
     errTxt.centerAlignText();
