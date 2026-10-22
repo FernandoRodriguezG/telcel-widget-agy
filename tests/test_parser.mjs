@@ -661,8 +661,16 @@ const runGetCredentialsTest = async () => {
       get title() { return alertTitle; }
       set message(m) { alertMessage = m; }
       get message() { return alertMessage; }
-      addTextField(placeholder, initialValue) { this.fields.push({placeholder, initialValue}); }
-      addSecureTextField(placeholder, initialValue) { this.secureFields.push({placeholder, initialValue}); }
+      addTextField(placeholder, initialValue) {
+        const field = { placeholder, initialValue, setPhonePadKeyboard: () => {} };
+        this.fields.push(field);
+        return field;
+      }
+      addSecureTextField(placeholder, initialValue) {
+        const field = { placeholder, initialValue };
+        this.secureFields.push(field);
+        return field;
+      }
       addAction(a) { this.actions.push(a); }
       addCancelAction(a) { this.actions.push(a); }
       async presentAlert() {
@@ -828,7 +836,11 @@ const testBaitCredentials = async () => {
       constructor() { this.textFields = []; }
       set title(t) { alertTitle = t; }
       get title() { return alertTitle; }
-      addTextField(t, v) { this.textFields.push(v); }
+      addTextField(t, v) {
+        const field = { t, v, setPhonePadKeyboard: () => {} };
+        this.textFields.push(field);
+        return field;
+      }
       addAction() {}
       addCancelAction() {}
       async presentAlert() {

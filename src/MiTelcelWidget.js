@@ -100,7 +100,8 @@ async function getCredentials(validator = validateTelcelCredentials) {
       alert.message = isError
         ? "Número o contraseña incorrectos. Por favor, ingresa tus credenciales nuevamente."
         : "Para mostrar tu consumo en vivo, ingresa tus datos. Se guardarán de forma segura en tu dispositivo.";
-      alert.addTextField("Número a 10 dígitos", phone);
+      const phoneField = alert.addTextField("Número a 10 dígitos", phone);
+      phoneField.setPhonePadKeyboard();
       alert.addSecureTextField("Contraseña Mi Telcel", "");
       alert.addAction("Guardar");
       alert.addCancelAction("Cancelar");
