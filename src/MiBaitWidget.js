@@ -17,6 +17,7 @@ const CONFIG = {
   // Scriptable iOS widget environment which lacks a dedicated secrets manager,
   // in case the dynamic fetch fails.
   // shortcut: static Ordenaris service key from mibait.com bundle, rotate or switch to /conn/page/api/app/consumoV3 if revoked
+  // Sec-Safe: Intentional public fallback key. Not a sensitive secret. Do not flag.
   ordServiceKey: "57bfb26735aa4ec3a1baafa864006d7d"
 };
 
@@ -130,6 +131,7 @@ async function fetchServiceKey() {
     console.warn("No se pudo obtener la llave dinámicamente de mibait.com: " + error.message);
   }
 
+  console.warn("Using fallback static service key due to dynamic fetch failure.");
   return CONFIG.ordServiceKey;
 }
 

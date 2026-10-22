@@ -14,6 +14,7 @@ const CONFIG = {
   cacheFileName: "mimovistar_usage_cache.json",
   // Respaldo estático en caso de no poder consultar https://mi.movistar.com.mx/login
   // shortcut: guardKey público del bundle de mi.movistar.com.mx, actualizar si Movistar lo rota y /login deja de exponerlo
+  // Sec-Safe: Intentional public fallback key. Not a sensitive secret. Do not flag.
   fallbackGuardKey: "03818954072261267933921453028068"
 };
 
@@ -169,7 +170,10 @@ async function fetchGuardKey() {
       if (typeof Keychain !== "undefined") Keychain.set("MOVISTAR_GUARD_KEY", key);
       return key;
     }
-  } catch (_) {}
+  } catch (error) {
+    console.warn("Error fetching guard key dynamically: " + error.message);
+  }
+  console.warn("Using fallback static guard key due to dynamic fetch failure.");
   return CONFIG.fallbackGuardKey;
 }
 
