@@ -325,6 +325,10 @@ function parseMovistarResponse(payload, now = new Date()) {
   let maxExpire = null;
   let isUnlimited = false;
 
+  let totalMB = 0;
+  let consumedMB = 0;
+  let availableMB = 0;
+
   const trackExpire = (dt) => {
     if (dt && (!maxExpire || dt > maxExpire)) maxExpire = dt;
   };
@@ -342,30 +346,33 @@ function parseMovistarResponse(payload, now = new Date()) {
       continue;
     }
 
-    let consumedMB = 0;
-    let totalMB = 0;
+    let bConsumedMB = 0;
+    let bTotalMB = 0;
     const pair = label.replace(/^llevas\s+/i, "").split(/\s+de\s+/i);
     if (pair.length === 2) {
-      consumedMB = toMB(pair[0]);
-      totalMB = toMB(pair[1]);
+      bConsumedMB = toMB(pair[0]);
+      bTotalMB = toMB(pair[1]);
     } else {
-      totalMB = toMB(benefit || label);
+      bTotalMB = toMB(benefit || label);
       const pct = Number(item?.consumption);
-      if (totalMB > 0 && Number.isFinite(pct)) {
-        consumedMB = totalMB * Math.min(100, Math.max(0, pct)) / 100;
+      if (bTotalMB > 0 && Number.isFinite(pct)) {
+        bConsumedMB = bTotalMB * Math.min(100, Math.max(0, pct)) / 100;
       }
     }
 
-    const availableMB = Math.max(0, totalMB - consumedMB);
-    if (totalMB > 0 || availableMB > 0) {
+    const bAvailableMB = Math.max(0, bTotalMB - bConsumedMB);
+    if (bTotalMB > 0 || bAvailableMB > 0) {
       trackExpire(parseDate(item?.vigencia));
       buckets.push({
         id: name || `bolton-${buckets.length}`,
         name: name || "Navegación",
-        consumedMB,
-        totalMB,
-        availableMB
+        consumedMB: bConsumedMB,
+        totalMB: bTotalMB,
+        availableMB: bAvailableMB
       });
+      totalMB += bTotalMB;
+      consumedMB += bConsumedMB;
+      availableMB += bAvailableMB;
     }
   }
 
@@ -378,17 +385,6 @@ function parseMovistarResponse(payload, now = new Date()) {
 
   if (!buckets.length && !isUnlimited) {
     throw new Error("Sin bolsas de navegación activas en la línea Movistar");
-  }
-
-  let totalMB = 0;
-  let consumedMB = 0;
-  let availableMB = 0;
-
-  for (let i = 0; i < buckets.length; i++) {
-    const b = buckets[i];
-    totalMB += b.totalMB;
-    consumedMB += b.consumedMB;
-    availableMB += b.availableMB;
   }
 
   const daysLeft = maxExpire ? daysUntil(maxExpire, now) : 0;

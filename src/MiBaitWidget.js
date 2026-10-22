@@ -172,24 +172,37 @@ function parseBaitResponse(payload, now = new Date()) {
   const buckets = [];
   let maxExpire = null;
 
+  let isUnlimited = false;
+  let promo = false;
+  let totalMB = 0;
+  let consumedMB = 0;
+  let availableMB = 0;
+
   const trackExpire = (dt) => {
     if (dt && (!maxExpire || dt > maxExpire)) maxExpire = dt;
   };
 
   for (const item of payload.data) {
+    if (!isUnlimited && item && item.category === "Data" && item.type !== "Unkown" && item.type !== "SocialMedia" && item.unlimited) {
+      isUnlimited = true;
+    }
+
     if (item?.type === "BestEffort" || item?.type === "Throttling") {
-      const totalMB = Number(item?.resume?.total) || 0;
-      const availableMB = Number(item?.resume?.unused) || 0;
-      const consumedMB = Math.max(0, totalMB - availableMB);
-      if (totalMB > 0 || availableMB > 0) {
+      const bTotalMB = Number(item?.resume?.total) || 0;
+      const bAvailableMB = Number(item?.resume?.unused) || 0;
+      const bConsumedMB = Math.max(0, bTotalMB - bAvailableMB);
+      if (bTotalMB > 0 || bAvailableMB > 0) {
         trackExpire(parseExpire(item?.resume?.expire_date));
         buckets.push({
           id: item.type,
           name: item.type === "BestEffort" ? "Velocidad normal" : "Velocidad reducida",
-          consumedMB,
-          totalMB,
-          availableMB
+          consumedMB: bConsumedMB,
+          totalMB: bTotalMB,
+          availableMB: bAvailableMB
         });
+        totalMB += bTotalMB;
+        consumedMB += bConsumedMB;
+        availableMB += bAvailableMB;
       }
     } else if (item?.type === "Benefits" && Array.isArray(item.offers_detail)) {
       let promoTotal = 0;
@@ -203,41 +216,24 @@ function parseBaitResponse(payload, now = new Date()) {
         }
       }
       if (promoTotal > 0 || promoAvail > 0) {
+        promo = true;
+        const bConsumedMB = Math.max(0, promoTotal - promoAvail);
         buckets.push({
           id: "Benefits",
           name: "Beneficios",
-          consumedMB: Math.max(0, promoTotal - promoAvail),
+          consumedMB: bConsumedMB,
           totalMB: promoTotal,
           availableMB: promoAvail
         });
+        totalMB += promoTotal;
+        consumedMB += bConsumedMB;
+        availableMB += promoAvail;
       }
     }
   }
 
   if (!buckets.length) {
     throw new Error("Sin bolsas de datos activas en la línea Bait");
-  }
-
-  let totalMB = 0;
-  let consumedMB = 0;
-  let availableMB = 0;
-
-  for (let i = 0; i < buckets.length; i++) {
-    const b = buckets[i];
-    if (b) {
-      totalMB += b.totalMB || 0;
-      consumedMB += b.consumedMB || 0;
-      availableMB += b.availableMB || 0;
-    }
-  }
-
-  let isUnlimited = false;
-  for (let i = 0; i < payload.data.length; i++) {
-    const d = payload.data[i];
-    if (d && d.category === "Data" && d.type !== "Unkown" && d.type !== "SocialMedia" && d.unlimited) {
-      isUnlimited = true;
-      break;
-    }
   }
 
   const daysLeft = maxExpire
@@ -252,14 +248,6 @@ function parseBaitResponse(payload, now = new Date()) {
 
   const hh = String(now.getHours()).padStart(2, "0");
   const mm = String(now.getMinutes()).padStart(2, "0");
-
-  let promo = false;
-  for (let i = 0; i < buckets.length; i++) {
-    if (buckets[i].id === "Benefits") {
-      promo = true;
-      break;
-    }
-  }
 
   return {
     consumedMB,
