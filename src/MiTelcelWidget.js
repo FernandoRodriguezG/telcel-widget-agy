@@ -27,9 +27,10 @@ const COLORS = {
 };
 
 async function getCredentials() {
-  let phone = String(Keychain.contains("TELCEL_PHONE") ? Keychain.get("TELCEL_PHONE") : CONFIG.phone || "").replace(/\D/g, "").slice(-10);
-  let password = Keychain.contains("TELCEL_PASS") ? Keychain.get("TELCEL_PASS") : CONFIG.password;
-  if ((phone.length !== 10 || phone === "5512345678" || !password || password === "TU_PASSWORD") && !config.runsInWidget) {
+  const hasKeychain = typeof Keychain !== "undefined";
+  let phone = String(hasKeychain && Keychain.contains("TELCEL_PHONE") ? Keychain.get("TELCEL_PHONE") : CONFIG.phone || "").replace(/\D/g, "").slice(-10);
+  let password = (hasKeychain && Keychain.contains("TELCEL_PASS")) ? Keychain.get("TELCEL_PASS") : CONFIG.password;
+  if ((phone.length !== 10 || phone === "5512345678" || !password || password === "TU_PASSWORD") && typeof config !== "undefined" && !config.runsInWidget && typeof Alert !== "undefined") {
     const alert = new Alert();
     alert.title = "Configurar Mi Telcel";
     alert.message = "Tus credenciales se guardarán en el Keychain de iOS.";
@@ -40,7 +41,7 @@ async function getCredentials() {
     if ((await alert.presentAlert()) === 0) {
       phone = alert.textFieldValue(0).replace(/\D/g, "").slice(-10);
       password = alert.textFieldValue(1);
-      if (phone.length === 10 && password) {
+      if (phone.length === 10 && password && hasKeychain) {
         Keychain.set("TELCEL_PHONE", phone);
         Keychain.set("TELCEL_PASS", password);
       }
@@ -84,7 +85,7 @@ async function main() {
 }
 
 async function requestTelcel(url, method, headers, body, parseJson = true) {
-  if (typeof Request !== "undefined") {
+  if (typeof Script !== "undefined" && typeof Request !== "undefined") {
     const req = new Request(url);
     req.method = method;
     req.headers = headers;
@@ -104,28 +105,10 @@ async function requestTelcel(url, method, headers, body, parseJson = true) {
 
 async function fetchDynamicMtlBasic() {
   try {
-    // In Scriptable we need to use loadString explicitly to get text. We create a local req to do this:
-    let html = "";
-    if (typeof Request !== "undefined") {
-      const r = new Request("https://www.mitelcel.com/mitelcel/login");
-      r.method = "GET";
-      html = await r.loadString();
-    } else {
-      const res = await fetch("https://www.mitelcel.com/mitelcel/login", { method: "GET" });
-      html = await res.text();
-    }
+    const html = await requestTelcel("https://www.mitelcel.com/mitelcel/login", "GET", {}, null, false);
     const scriptMatch = html.match(/src="(\/assets\/index-[^"]+\.js)"/);
     if (scriptMatch) {
-      const scriptUrl = "https://www.mitelcel.com" + scriptMatch[1];
-      let scriptText = "";
-      if (typeof Request !== "undefined") {
-        const r = new Request(scriptUrl);
-        r.method = "GET";
-        scriptText = await r.loadString();
-      } else {
-        const res = await fetch(scriptUrl, { method: "GET" });
-        scriptText = await res.text();
-      }
+      const scriptText = await requestTelcel("https://www.mitelcel.com" + scriptMatch[1], "GET", {}, null, false);
       const basicMatch = scriptText.match(/MTL_AUTHORIZATION_BASIC\s*:\s*"([^"]+)"/);
       if (basicMatch) {
         return basicMatch[1];

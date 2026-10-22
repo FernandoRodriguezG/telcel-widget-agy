@@ -11,24 +11,6 @@ mkdir -p "$ARTIFACTS_DIR"
 
 UA="Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1"
 
-# Obtener token MTL_BASIC de forma dinámica
-HTML_CONTENT=$(curl -s "https://www.mitelcel.com/mitelcel/login")
-JS_PATH=$(echo "$HTML_CONTENT" | grep -o 'src="/assets/index-[^"]*\.js"' | sed 's/src="//;s/"//')
-if [ -z "$JS_PATH" ]; then
-    echo "❌ Error: No se pudo encontrar el archivo JS principal."
-    exit 1
-fi
-JS_CONTENT=$(curl -s "https://www.mitelcel.com$JS_PATH")
-MTL_BASIC=$(echo "$JS_CONTENT" | grep -o 'MTL_AUTHORIZATION_BASIC:"[^"]*"' | sed 's/MTL_AUTHORIZATION_BASIC:"//;s/"//')
-if [ -z "$MTL_BASIC" ]; then
-    echo "❌ Error: No se pudo extraer MTL_AUTHORIZATION_BASIC del JS."
-    exit 1
-fi
-
-SSO_TOKEN=""
-MTL_TOKEN=""
-B2F_TOKEN=""
-
 command -v jq >/dev/null 2>&1 || {
   echo "❌ Error: Instala jq (brew install jq) antes de ejecutar el probe."
   exit 1
@@ -55,6 +37,24 @@ if [[ "$TELCEL_PHONE" == "5512345678" || "$TELCEL_PHONE" == "5500000000" || "$TE
 fi
 
 PASS_B64="$(printf '%s' "$TELCEL_PASS" | tr -d '[:space:]' | base64 | tr -d '\r\n')"
+
+# Obtener token MTL_BASIC de forma dinámica
+HTML_CONTENT=$(curl -s "https://www.mitelcel.com/mitelcel/login")
+JS_PATH=$(echo "$HTML_CONTENT" | grep -o 'src="/assets/index-[^"]*\.js"' | sed 's/src="//;s/"//')
+if [ -z "$JS_PATH" ]; then
+    echo "❌ Error: No se pudo encontrar el archivo JS principal."
+    exit 1
+fi
+JS_CONTENT=$(curl -s "https://www.mitelcel.com$JS_PATH")
+MTL_BASIC=$(echo "$JS_CONTENT" | grep -o 'MTL_AUTHORIZATION_BASIC:"[^"]*"' | sed 's/MTL_AUTHORIZATION_BASIC:"//;s/"//')
+if [ -z "$MTL_BASIC" ]; then
+    echo "❌ Error: No se pudo extraer MTL_AUTHORIZATION_BASIC del JS."
+    exit 1
+fi
+
+SSO_TOKEN=""
+MTL_TOKEN=""
+B2F_TOKEN=""
 
 # Garantizar revocación de sesión SSO y limpieza de tokens/cookies al salir del script
 cleanup() {
