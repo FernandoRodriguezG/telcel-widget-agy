@@ -482,6 +482,9 @@ function drawSemicircleGauge(spentRatio, mainLabel, subLabel) {
   return ctx.getImage();
 }
 
+// Note: This cache logic is intentionally duplicated across widget scripts
+// (MiBaitWidget.js, MiTelcelWidget.js) to ensure each script remains
+// completely standalone and easy for users to copy into the Scriptable app.
 function getCachePath() {
   const fm = FileManager.local();
   return fm.joinPath(fm.documentsDirectory(), CONFIG.cacheFileName);
