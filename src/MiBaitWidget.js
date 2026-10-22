@@ -178,12 +178,27 @@ function parseBaitResponse(payload, now = new Date()) {
     throw new Error("Sin bolsas de datos activas en la línea Bait");
   }
 
-  const totalMB = buckets.reduce((sum, b) => sum + b.totalMB, 0);
-  const consumedMB = buckets.reduce((sum, b) => sum + b.consumedMB, 0);
-  const availableMB = buckets.reduce((sum, b) => sum + b.availableMB, 0);
-  const isUnlimited = payload.data.some(
-    d => d?.category === "Data" && d?.type !== "Unkown" && d?.type !== "SocialMedia" && d?.unlimited
-  );
+  let totalMB = 0;
+  let consumedMB = 0;
+  let availableMB = 0;
+
+  for (let i = 0; i < buckets.length; i++) {
+    const b = buckets[i];
+    if (b) {
+      totalMB += b.totalMB || 0;
+      consumedMB += b.consumedMB || 0;
+      availableMB += b.availableMB || 0;
+    }
+  }
+
+  let isUnlimited = false;
+  for (let i = 0; i < payload.data.length; i++) {
+    const d = payload.data[i];
+    if (d && d.category === "Data" && d.type !== "Unkown" && d.type !== "SocialMedia" && d.unlimited) {
+      isUnlimited = true;
+      break;
+    }
+  }
 
   const daysLeft = maxExpire
     ? Math.max(0, Math.round((maxExpire.getTime() - today.getTime()) / 86400000))
