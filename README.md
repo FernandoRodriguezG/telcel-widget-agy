@@ -155,6 +155,9 @@ Puedes probar las llamadas y verificar el formato devuelto por Mi Telcel usando 
 
 ## Seguridad y Privacidad
 
-- **Sin servidores intermediarios:** Las peticiones viajan directamente desde tu iPhone a los servidores oficiales de Telcel (`wbl.telcel-id.com`, `mi-telcel.smapps.mx`, `api.journeys.telcel.wavebybemobi.com`).
-- **Keychain de iOS:** Las contraseñas se almacenan mediante el subsistema de seguridad de iOS (`Keychain`), no en texto plano en el código.
-- **Revocación de sesión:** Cada consulta revoca activamente el token SSO generado (`/sso/revoke`), evitando bloqueos por inicios de sesión simultáneos en la app oficial de Telcel.
+- **Sin servidores intermediarios:** Las peticiones viajan directamente desde tu iPhone a los servidores oficiales de cada operador:
+  - **Telcel:** `wbl.telcel-id.com`, `mi-telcel.smapps.mx`, `api.journeys.telcel.wavebybemobi.com`.
+  - **Bait:** `mibait.com` (consulta por número, sin contraseña).
+  - **Movistar:** `mi.movistar.com.mx` (login interactivo en WebView y consulta de consumos).
+- **Keychain de iOS:** Contraseñas, números y tokens (`p_id` de Movistar) se almacenan mediante el subsistema de seguridad de iOS (`Keychain`), no en texto plano en el código.
+- **Revocación de sesión (solo Telcel):** Cada consulta de Telcel revoca activamente el token SSO generado (`/sso/revoke`), evitando bloqueos por inicios de sesión simultáneos en la app oficial. Bait no abre sesión; Movistar reutiliza el `p_id` guardado hasta que expira y entonces pide iniciar sesión de nuevo al abrir el script.

@@ -53,6 +53,7 @@ const require = createRequire(import.meta.url);
 const { parseTelcelResponse, createWidget, loadCache } = require("../src/MiTelcelWidget.js");
 const { parseBaitResponse, createWidget: createBaitWidget, loadCache: loadBaitCache } = require("../src/MiBaitWidget.js");
 const {
+  fetchMovistarData,
   parseMovistarResponse,
   decryptMovistarContent,
   extractGuardKey,
@@ -241,7 +242,7 @@ assert.equal(baitUnlimited.daysLeft, 0);
 const wBaitUnl = createBaitWidget(baitUnlimited);
 assert(wBaitUnl.texts.some(t => t.startsWith("Bait Ilimitado • ⏱")));
 
-// 1c. Test Mi Movistar parser, AES-256-GCM decryptor & widget
+// 1d. Test Mi Movistar parser, AES-256-GCM decryptor & widget
 const movNow = new Date(2026, 9, 21, 10, 0); // Oct 21, 2026 10:00 local
 const movFixture = {
   offering: "Movistar Libre",
@@ -292,42 +293,72 @@ const encBuf = await globalThis.crypto.subtle.encrypt(
 );
 const toB64Url = (buf) => Buffer.from(buf).toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 const cipherPayload = `${toB64Url(encBuf)}:${toB64Url(iv)}`;
-const decryptedStr = await decryptMovistarContent(cipherPayload);
-assert.deepEqual(JSON.parse(decryptedStr), movFixture);
-await assert.rejects(async () => decryptMovistarContent("invalid_format"), /inválido/);
 
-// Test dynamic guardKey extraction and resolution
-assert.equal(
-  extractGuardKey("<script>\nconst guardString = 'MDM4MTg5NTQwNzIyNjEyNjc5MzM5MjE0NTMwMjgwNjg=';\n</script>"),
-  "03818954072261267933921453028068"
-);
-assert.equal(extractGuardKey("<html>sin llave</html>"), null);
-const decryptedWithExplicitKey = await decryptMovistarContent(cipherPayload, "03818954072261267933921453028068");
-assert.deepEqual(JSON.parse(decryptedWithExplicitKey), movFixture);
-
-// Test automatic key rotation self-healing
+// Hermetic Keychain + fetch mocks: no live requests to mi.movistar.com.mx
+const staticKey = "03818954072261267933921453028068";
 const rotatedKey = "88888888888888888888888888888888";
-const rotatedKeyB64 = Buffer.from(rotatedKey).toString("base64");
-const rotatedCryptoKey = await globalThis.crypto.subtle.importKey("raw", Buffer.from(rotatedKey), { name: "AES-GCM" }, false, ["encrypt"]);
-const rotatedEnc = await globalThis.crypto.subtle.encrypt({ name: "AES-GCM", iv, tagLength: 128 }, rotatedCryptoKey, new TextEncoder().encode(JSON.stringify(movFixture)));
-const rotatedPayload = `${toB64Url(rotatedEnc)}:${toB64Url(iv)}`;
-
+const keychainStore = new Map([["MOVISTAR_GUARD_KEY", staticKey]]);
+let pageGuardKey = staticKey;
+let datosResponse = {};
+const fetchCalls = [];
 const origFetch = globalThis.fetch;
-globalThis.fetch = async (url, opts) => {
-  if (typeof url === "string" && url.includes("login")) {
-    return {
-      text: async () => `<script>const guardString = "${rotatedKeyB64}";</script>`
-    };
-  }
-  return origFetch(url, opts);
+globalThis.Keychain = {
+  contains: (k) => keychainStore.has(k),
+  get: (k) => keychainStore.get(k),
+  set: (k, v) => keychainStore.set(k, v)
 };
-const healedResult = await decryptMovistarContent(rotatedPayload);
-assert.deepEqual(JSON.parse(healedResult), movFixture);
-globalThis.fetch = origFetch;
+globalThis.fetch = async (url, opts) => {
+  fetchCalls.push({ url, opts });
+  if (url.endsWith("/login")) {
+    if (!pageGuardKey) throw new Error("offline");
+    return { text: async () => `<script>const guardString = "${Buffer.from(pageGuardKey).toString("base64")}";</script>` };
+  }
+  if (url.endsWith("/consumptions-controller/datos-iniciales")) return { json: async () => datosResponse };
+  throw new Error(`Unexpected fetch ${url}`);
+};
+try {
+  // Cached key decrypts without touching the network; malformed payload fails before key lookup
+  assert.deepEqual(JSON.parse(await decryptMovistarContent(cipherPayload)), movFixture);
+  await assert.rejects(async () => decryptMovistarContent("invalid_format"), /inválido/);
+  assert.equal(fetchCalls.length, 0);
+
+  // Test dynamic guardKey extraction and resolution
+  assert.equal(
+    extractGuardKey("<script>\nconst guardString = 'MDM4MTg5NTQwNzIyNjEyNjc5MzM5MjE0NTMwMjgwNjg=';\n</script>"),
+    staticKey
+  );
+  assert.equal(extractGuardKey("<html>sin llave</html>"), null);
+  assert.deepEqual(JSON.parse(await decryptMovistarContent(cipherPayload, staticKey)), movFixture);
+
+  // Test automatic key rotation self-healing: stale cached key -> decrypt fails -> /login -> retry
+  const rotatedCryptoKey = await globalThis.crypto.subtle.importKey("raw", Buffer.from(rotatedKey), { name: "AES-GCM" }, false, ["encrypt"]);
+  const rotatedEnc = await globalThis.crypto.subtle.encrypt({ name: "AES-GCM", iv, tagLength: 128 }, rotatedCryptoKey, new TextEncoder().encode(JSON.stringify(movFixture)));
+  const rotatedPayload = `${toB64Url(rotatedEnc)}:${toB64Url(iv)}`;
+  pageGuardKey = rotatedKey;
+  assert.deepEqual(JSON.parse(await decryptMovistarContent(rotatedPayload)), movFixture);
+  assert.equal(fetchCalls.length, 1);
+  assert.equal(keychainStore.get("MOVISTAR_GUARD_KEY"), rotatedKey);
+
+  // fetchGuardKey falls back to the static key when /login is unreachable
+  pageGuardKey = null;
+  assert.equal(await fetchGuardKey(), staticKey);
+
+  // fetchMovistarData sends raw p_id (no Bearer), decrypts and parses; invalid session rejects
+  datosResponse = { content: rotatedPayload };
+  const movFetched = await fetchMovistarData({ pId: "test-pid" });
+  assert.equal(movFetched.totalMB, 12288);
+  assert.equal(fetchCalls.at(-1).opts.headers.Authorization, "test-pid");
+  datosResponse = { response: "401" };
+  await assert.rejects(() => fetchMovistarData({ pId: "test-pid" }), /expirada/);
+} finally {
+  globalThis.fetch = origFetch;
+  delete globalThis.Keychain;
+}
 
 // Test parser
 assert.throws(() => parseMovistarResponse({ bolton: [] }), /Sin bolsas de datos/);
 assert.throws(() => parseMovistarResponse({ bolton: [{ name: "Redes Sociales" }] }), /Sin bolsas de navegación/);
+assert.throws(() => parseMovistarResponse({ bolton: [{ name: "Redes Sociales Ilimitadas", consumptionLabel: "Ilimitado" }] }), /Sin bolsas de navegación/);
 
 const movRes = parseMovistarResponse(movFixture, movNow);
 assert.equal(movRes.planName, "Movistar Libre");

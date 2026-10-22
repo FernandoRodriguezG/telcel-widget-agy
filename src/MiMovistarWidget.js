@@ -13,6 +13,7 @@ const CONFIG = {
   useMockData: false,
   cacheFileName: "mimovistar_usage_cache.json",
   // Respaldo estático en caso de no poder consultar https://mi.movistar.com.mx/login
+  // shortcut: guardKey público del bundle de mi.movistar.com.mx, actualizar si Movistar lo rota y /login deja de exponerlo
   fallbackGuardKey: "03818954072261267933921453028068"
 };
 
@@ -41,10 +42,7 @@ async function loginWithWebView() {
   const wv = new WebView();
   wv.shouldAllowRequest = (req) => {
     const m = String(req?.url || "").match(/[?&]p_id=([^&#]+)/);
-    if (m) {
-      capturedPid = decodeURIComponent(m[1]);
-      if (typeof Keychain !== "undefined") Keychain.set("MOVISTAR_PID", capturedPid);
-    }
+    if (m) capturedPid = decodeURIComponent(m[1]);
     return true;
   };
   await wv.loadURL("https://mi.movistar.com.mx/login");
@@ -54,7 +52,7 @@ async function loginWithWebView() {
       "typeof guardString !== 'undefined' ? String(guardString) : ''",
       false
     );
-    const extracted = extractGuardKey(`guardString="${guardFromPage}"`);
+    const extracted = guardFromPage ? decodeGuardString(guardFromPage) : null;
     if (extracted && typeof Keychain !== "undefined") Keychain.set("MOVISTAR_GUARD_KEY", extracted);
   } catch (_) {}
   if (!capturedPid) {
@@ -63,10 +61,7 @@ async function loginWithWebView() {
         "typeof p_id !== 'undefined' ? String(p_id) : (new URLSearchParams(location.search).get('p_id') || '')",
         false
       );
-      if (fromPage) {
-        capturedPid = String(fromPage).trim();
-        if (capturedPid && typeof Keychain !== "undefined") Keychain.set("MOVISTAR_PID", capturedPid);
-      }
+      capturedPid = String(fromPage || "").trim();
     } catch (_) {}
   }
   if (!capturedPid && typeof Alert !== "undefined" && typeof config !== "undefined" && !config.runsInWidget) {
@@ -78,17 +73,18 @@ async function loginWithWebView() {
     alert.addCancelAction("Cancelar");
     if ((await alert.presentAlert()) === 0) {
       capturedPid = alert.textFieldValue(0).trim();
-      if (capturedPid && typeof Keychain !== "undefined") Keychain.set("MOVISTAR_PID", capturedPid);
     }
   }
+  if (capturedPid && typeof Keychain !== "undefined") Keychain.set("MOVISTAR_PID", capturedPid);
   return capturedPid;
 }
 
 async function getSessionToken(forceInteractive = false) {
-  let pId = (!forceInteractive && typeof Keychain !== "undefined" && Keychain.contains("MOVISTAR_PID"))
-    ? Keychain.get("MOVISTAR_PID")
-    : CONFIG.pId || "";
-  pId = String(pId).trim();
+  // forceInteractive ignora el token guardado (Keychain/CONFIG) porque ya fue rechazado
+  const stored = forceInteractive
+    ? ""
+    : (typeof Keychain !== "undefined" && Keychain.contains("MOVISTAR_PID")) ? Keychain.get("MOVISTAR_PID") : CONFIG.pId;
+  let pId = String(stored || "").trim();
   if (!pId && typeof config !== "undefined" && !config.runsInWidget) {
     pId = await loginWithWebView();
   }
@@ -151,16 +147,18 @@ function decodeBase64Url(input) {
   return Uint8Array.from(bin, c => c.charCodeAt(0));
 }
 
-function extractGuardKey(html) {
-  const m = String(html || "").match(/guardString\s*=\s*["']([^"']+)["']/);
-  if (!m) return null;
-  const b64 = m[1];
+function decodeGuardString(b64) {
   const key = typeof Buffer !== "undefined"
     ? Buffer.from(b64, "base64").toString("utf8")
     : typeof Data !== "undefined"
       ? Data.fromBase64String(b64).toRawString()
       : atob(b64);
   return (key && key.length === 32) ? key : null;
+}
+
+function extractGuardKey(html) {
+  const m = String(html || "").match(/guardString\s*=\s*["']([^"']+)["']/);
+  return m ? decodeGuardString(m[1]) : null;
 }
 
 async function fetchGuardKey() {
@@ -183,16 +181,11 @@ async function getGuardKey() {
   return fetchGuardKey();
 }
 
-async function decryptAESGCM(cipherText, guardKey) {
-  const parts = String(cipherText || "").split(":");
-  if (parts.length !== 2 || !parts[0] || !parts[1]) {
-    throw new Error("Payload cifrado de Mi Movistar inválido");
-  }
-
+async function decryptAESGCM(encryptedB64, ivB64, guardKey) {
   if (globalThis.crypto?.subtle) {
     const keyBytes = Uint8Array.from(guardKey, c => c.charCodeAt(0));
-    const iv = decodeBase64Url(parts[1]);
-    const encrypted = decodeBase64Url(parts[0]);
+    const iv = decodeBase64Url(ivB64);
+    const encrypted = decodeBase64Url(encryptedB64);
     const cryptoKey = await globalThis.crypto.subtle.importKey("raw", keyBytes, { name: "AES-GCM" }, false, ["decrypt"]);
     const decrypted = await globalThis.crypto.subtle.decrypt({ name: "AES-GCM", iv, tagLength: 128 }, cryptoKey, encrypted);
     return new TextDecoder().decode(decrypted);
@@ -200,17 +193,17 @@ async function decryptAESGCM(cipherText, guardKey) {
 
   if (typeof WebView !== "undefined") {
     const wv = new WebView();
-    await wv.loadHTML("<!doctype html><html><body></body></html>");
+    // baseURL https para que WKWebView sea un contexto seguro y exponga crypto.subtle
+    await wv.loadHTML("<!doctype html><html><body></body></html>", "https://mi.movistar.com.mx");
     const res = await wv.evaluateJavaScript(`
       (async () => {
         const b64 = s => {
           const p = s.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - (s.length % 4)) % 4);
           return Uint8Array.from(atob(p), c => c.charCodeAt(0));
         };
-        const [enc, iv] = ${JSON.stringify(cipherText)}.split(":");
         const rawKey = new TextEncoder().encode(${JSON.stringify(guardKey)});
         const key = await crypto.subtle.importKey("raw", rawKey, { name: "AES-GCM" }, false, ["decrypt"]);
-        const buf = await crypto.subtle.decrypt({ name: "AES-GCM", iv: b64(iv), tagLength: 128 }, key, b64(enc));
+        const buf = await crypto.subtle.decrypt({ name: "AES-GCM", iv: b64(${JSON.stringify(ivB64)}), tagLength: 128 }, key, b64(${JSON.stringify(encryptedB64)}));
         return { ok: new TextDecoder().decode(buf) };
       })().then(r => completion(r), e => completion({ err: String(e) }));
     `, true);
@@ -226,14 +219,19 @@ async function decryptAESGCM(cipherText, guardKey) {
  * Obtiene dinámicamente la llave de cifrado desde la web de Movistar con caché en Keychain.
  */
 async function decryptMovistarContent(cipherText, guardKey) {
+  // Validar antes de resolver la llave para no consultar /login con payloads corruptos
+  const parts = String(cipherText || "").split(":");
+  if (parts.length !== 2 || !parts[0] || !parts[1]) {
+    throw new Error("Payload cifrado de Mi Movistar inválido");
+  }
   const key = guardKey || await getGuardKey();
   try {
-    return await decryptAESGCM(cipherText, key);
+    return await decryptAESGCM(parts[0], parts[1], key);
   } catch (err) {
     if (!guardKey) {
       const refreshed = await fetchGuardKey();
       if (refreshed && refreshed !== key) {
-        return await decryptAESGCM(cipherText, refreshed);
+        return await decryptAESGCM(parts[0], parts[1], refreshed);
       }
     }
     throw err;
@@ -241,12 +239,12 @@ async function decryptMovistarContent(cipherText, guardKey) {
 }
 
 async function fetchMovistarData(creds) {
-  let pId = String(creds?.pId || await getSessionToken(false)).trim();
+  const pId = String(creds?.pId || await getSessionToken(false)).trim();
   if (!pId) {
     throw new Error("Inicia sesión en Mi Movistar abriendo el script en Scriptable.");
   }
 
-  const query = async (token) => {
+  const fetchContent = async (token) => {
     const res = await requestMovistar(
       "https://mi.movistar.com.mx/consumptions-controller/datos-iniciales",
       {
@@ -258,21 +256,20 @@ async function fetchMovistarData(creds) {
     if (!res?.content || typeof res.content !== "string" || !res.content.includes(":")) {
       throw new Error("Sesión de Mi Movistar expirada o respuesta inválida");
     }
-    const plain = await decryptMovistarContent(res.content);
-    return parseMovistarResponse(JSON.parse(plain));
+    return res.content;
   };
 
+  // Solo los fallos de sesión/red piden un nuevo login; errores de descifrado o parseo se propagan
+  let content;
   try {
-    return await query(pId);
+    content = await fetchContent(pId);
   } catch (err) {
-    if (!creds?.pId && typeof config !== "undefined" && !config.runsInWidget) {
-      const refreshedPid = await getSessionToken(true);
-      if (refreshedPid && refreshedPid !== pId) {
-        return await query(refreshedPid);
-      }
-    }
-    throw err;
+    const canRelogin = !creds?.pId && typeof config !== "undefined" && !config.runsInWidget;
+    const refreshedPid = canRelogin ? await getSessionToken(true) : "";
+    if (!refreshedPid || refreshedPid === pId) throw err;
+    content = await fetchContent(refreshedPid);
   }
+  return parseMovistarResponse(await decryptMovistarContent(content));
 }
 
 function parseDate(raw) {
@@ -309,6 +306,11 @@ function toMB(text) {
   return val;
 }
 
+function daysUntil(date, now) {
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  return Math.max(0, Math.round((date.getTime() - today.getTime()) / 86400000));
+}
+
 /**
  * Normaliza el JSON desencriptado de /consumptions-controller/datos-iniciales.
  * Extrae bolsas de navegación de `bolton[]`, ignorando Redes Sociales, Minutos y SMS.
@@ -319,7 +321,6 @@ function parseMovistarResponse(payload, now = new Date()) {
     throw new Error("Sin bolsas de datos activas en la línea Movistar");
   }
 
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const buckets = [];
   let maxExpire = null;
   let isUnlimited = false;
@@ -330,7 +331,8 @@ function parseMovistarResponse(payload, now = new Date()) {
 
   for (const item of data.bolton) {
     const name = String(item?.name || "").trim();
-    if (/^(redes sociales|minutos|sms|voz|mensajes)$/i.test(name)) continue;
+    // Prefijo para cubrir variantes como "Redes Sociales Ilimitadas" o "SMS ilimitados"
+    if (/^(redes sociales|minutos|sms|voz|mensajes)\b/i.test(name)) continue;
 
     const label = String(item?.consumptionLabel || "").trim();
     const benefit = String(item?.totalBenefit || "").trim();
@@ -382,9 +384,7 @@ function parseMovistarResponse(payload, now = new Date()) {
   const consumedMB = buckets.reduce((sum, b) => sum + b.consumedMB, 0);
   const availableMB = buckets.reduce((sum, b) => sum + b.availableMB, 0);
 
-  const daysLeft = maxExpire
-    ? Math.max(0, Math.round((maxExpire.getTime() - today.getTime()) / 86400000))
-    : 0;
+  const daysLeft = maxExpire ? daysUntil(maxExpire, now) : 0;
   const cutoffDate = maxExpire
     ? `${maxExpire.getDate()} de ${MONTHS_ES[maxExpire.getMonth()]}`
     : "";
@@ -599,10 +599,7 @@ function loadCache(now = new Date()) {
     if (fm.fileExists(path)) {
       const parsed = JSON.parse(fm.readString(path));
       const exp = parseDate(parsed.cutoffISO);
-      if (exp) {
-        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-        parsed.daysLeft = Math.max(0, Math.round((exp.getTime() - today.getTime()) / 86400000));
-      }
+      if (exp) parsed.daysLeft = daysUntil(exp, now);
       parsed.fromCache = true;
       return parsed;
     }
