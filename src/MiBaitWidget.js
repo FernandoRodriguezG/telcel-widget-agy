@@ -38,18 +38,69 @@ const MONTHS_ES = [
   "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"
 ];
 
-async function getCredentials() {
-  let phone = String(Keychain.contains("BAIT_PHONE") ? Keychain.get("BAIT_PHONE") : CONFIG.phone || "").replace(/\D/g, "").slice(-10);
-  if ((phone.length !== 10 || phone === "5512345678") && !config.runsInWidget) {
-    const alert = new Alert();
-    alert.title = "Configurar Mi Bait";
-    alert.message = "Para mostrar tu consumo en vivo, ingresa tu número Bait a 10 dígitos (no requiere contraseña). Se guardará de forma segura en tu dispositivo.";
-    alert.addTextField("Número a 10 dígitos", phone);
-    alert.addAction("Guardar");
-    alert.addCancelAction("Cancelar");
-    if ((await alert.presentAlert()) === 0) {
-      phone = alert.textFieldValue(0).replace(/\D/g, "").slice(-10);
-      if (phone.length === 10) Keychain.set("BAIT_PHONE", phone);
+async function validateBaitCredentials(phone) {
+  try {
+    const ordServiceKey = await fetchServiceKey();
+    const json = await requestBait(
+      `https://mibait.com/api/core/q/dn/${encodeURIComponent(phone)}/get/consumption`,
+      {
+        "Accept": "application/json",
+        "x-ord-service": ordServiceKey
+      }
+    );
+    return Boolean(json?.success && Array.isArray(json?.data));
+  } catch (err) {
+    if (String(err?.message || "").includes("400") || String(err?.message || "").includes("401") || String(err?.message || "").includes("404")) {
+      return false;
+    }
+    throw err;
+  }
+}
+
+async function getCredentials(validator = validateBaitCredentials) {
+  let phone = String(
+    typeof Keychain !== "undefined" && Keychain.contains("BAIT_PHONE")
+      ? Keychain.get("BAIT_PHONE")
+      : CONFIG.phone || ""
+  ).replace(/\D/g, "").slice(-10);
+
+  if ((phone.length !== 10 || phone === "5512345678") && (typeof config === "undefined" || !config.runsInWidget)) {
+    let isError = false;
+    while (true) {
+      const alert = new Alert();
+      alert.title = isError ? "Número incorrecto" : "Configurar Mi Bait";
+      alert.message = isError
+        ? "Número incorrecto. Por favor, ingresa tu número Bait a 10 dígitos nuevamente."
+        : "Para mostrar tu consumo en vivo, ingresa tu número Bait a 10 dígitos (no requiere contraseña). Se guardará de forma segura en tu dispositivo.";
+      alert.addTextField("Número a 10 dígitos", phone);
+      alert.addAction("Guardar");
+      alert.addCancelAction("Cancelar");
+      if ((await alert.presentAlert()) !== 0) {
+        phone = "";
+        break;
+      }
+
+      const enteredPhone = alert.textFieldValue(0).replace(/\D/g, "").slice(-10);
+      if (enteredPhone.length === 10 && enteredPhone !== "5512345678") {
+        try {
+          const valid = await validator(enteredPhone);
+          if (valid) {
+            phone = enteredPhone;
+            if (typeof Keychain !== "undefined") Keychain.set("BAIT_PHONE", phone);
+            break;
+          }
+        } catch (_) {
+          const offlineAlert = new Alert();
+          offlineAlert.title = "Sin conexión a internet";
+          offlineAlert.message = "No fue posible verificar tu número Bait. Revisa tu conexión a internet e inténtalo más tarde.";
+          offlineAlert.addAction("Aceptar");
+          await offlineAlert.presentAlert();
+          phone = "";
+          break;
+        }
+      }
+      isError = true;
+      phone = enteredPhone;
     }
   }
   return { phone };
@@ -98,6 +149,9 @@ async function requestBait(url, headers) {
     return req.loadJSON();
   }
   const res = await fetch(url, { method: "GET", headers });
+  if (res.ok === false || (typeof res.status === "number" && res.status >= 400)) {
+    throw new Error(`Error en la solicitud: código de estado ${res.status}`);
+  }
   return res.json();
 }
 
@@ -495,5 +549,14 @@ if (typeof Script !== "undefined") {
   main();
 }
 if (typeof module !== "undefined") {
-  module.exports = { fetchBaitData, parseBaitResponse, createWidget, loadCache, fetchServiceKey, CONFIG, getCredentials };
+  module.exports = {
+    fetchBaitData,
+    parseBaitResponse,
+    createWidget,
+    loadCache,
+    fetchServiceKey,
+    CONFIG,
+    getCredentials,
+    validateBaitCredentials
+  };
 }
