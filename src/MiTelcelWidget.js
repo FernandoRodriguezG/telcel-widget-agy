@@ -245,18 +245,18 @@ async function fetchTelcelData(creds) {
  */
 function parseTelcelResponse(payload) {
   const byId = {};
-  const suffixes = [];
+  const suffixesSet = new Set();
   (function walk(node) {
     if (!node || typeof node !== "object") return;
     if (typeof node.id === "string" && node.config) {
       byId[node.id] = node.config;
       const m = node.id.match(/^tabs-plans-v2-plan-name-(\d+-\d+-\d+)$/);
-      if (m && !suffixes.includes(m[1])) suffixes.push(m[1]);
+      if (m) suffixesSet.add(m[1]);
     }
     if (Array.isArray(node.children)) node.children.forEach(walk);
     if (node.blocks) walk(node.blocks);
   })(payload);
-  suffixes.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  const suffixes = Array.from(suffixesSet).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
 
   const toMB = (val, unit) => {
     const n = parseFloat(val);
