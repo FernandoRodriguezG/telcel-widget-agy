@@ -38,9 +38,8 @@ const MONTHS_ES = [
 ];
 
 async function getCredentials() {
-  const hasKeychain = typeof Keychain !== "undefined";
-  let phone = String(hasKeychain && Keychain.contains("BAIT_PHONE") ? Keychain.get("BAIT_PHONE") : CONFIG.phone || "").replace(/\D/g, "").slice(-10);
-  if ((phone.length !== 10 || phone === "5512345678") && typeof config !== "undefined" && !config.runsInWidget && typeof Alert !== "undefined") {
+  let phone = String(Keychain.contains("BAIT_PHONE") ? Keychain.get("BAIT_PHONE") : CONFIG.phone || "").replace(/\D/g, "").slice(-10);
+  if ((phone.length !== 10 || phone === "5512345678") && !config.runsInWidget) {
     const alert = new Alert();
     alert.title = "Configurar Mi Bait";
     alert.message = "Ingresa tu número Bait a 10 dígitos (no requiere contraseña).";
@@ -49,7 +48,7 @@ async function getCredentials() {
     alert.addCancelAction("Cancelar");
     if ((await alert.presentAlert()) === 0) {
       phone = alert.textFieldValue(0).replace(/\D/g, "").slice(-10);
-      if (phone.length === 10 && hasKeychain) Keychain.set("BAIT_PHONE", phone);
+      if (phone.length === 10) Keychain.set("BAIT_PHONE", phone);
     }
   }
   return { phone };
@@ -91,7 +90,7 @@ async function main() {
 }
 
 async function requestBait(url, headers) {
-  if (typeof Script !== "undefined" && typeof Request !== "undefined") {
+  if (typeof Request !== "undefined") {
     const req = new Request(url);
     req.method = "GET";
     req.headers = headers;
@@ -102,7 +101,7 @@ async function requestBait(url, headers) {
 }
 
 async function requestText(url, headers = {}) {
-  if (typeof Script !== "undefined" && typeof Request !== "undefined") {
+  if (typeof Request !== "undefined") {
     const req = new Request(url);
     req.method = "GET";
     req.headers = headers;
