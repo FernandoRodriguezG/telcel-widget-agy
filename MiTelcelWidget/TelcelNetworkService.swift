@@ -126,6 +126,7 @@ public actor TelcelNetworkService {
         guard !value.isEmpty, let data = value.data(using: .utf8) else { return }
         var attrs = query
         attrs[kSecValueData] = data
+        attrs[kSecAttrAccessible] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
         SecItemAdd(attrs as CFDictionary, nil)
     }
 
