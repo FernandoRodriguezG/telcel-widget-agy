@@ -487,6 +487,8 @@ function getCachePath() {
   return fm.joinPath(fm.documentsDirectory(), CONFIG.cacheFileName);
 }
 
+// Note: This cache logic is duplicated across widget scripts because
+// Scriptable iOS widgets require each script to be completely standalone.
 function saveCache(data) {
   const fm = FileManager.local();
   fm.writeString(getCachePath(), JSON.stringify(data));
