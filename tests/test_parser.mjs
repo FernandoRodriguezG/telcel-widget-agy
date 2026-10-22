@@ -52,6 +52,14 @@ globalThis.ListWidget = class {
 const require = createRequire(import.meta.url);
 const { parseTelcelResponse, createWidget, loadCache } = require("../src/MiTelcelWidget.js");
 const { parseBaitResponse, createWidget: createBaitWidget, loadCache: loadBaitCache } = require("../src/MiBaitWidget.js");
+const {
+  parseMovistarResponse,
+  decryptMovistarContent,
+  extractGuardKey,
+  fetchGuardKey,
+  createWidget: createMovistarWidget,
+  loadCache: loadMovistarCache
+} = require("../src/MiMovistarWidget.js");
 const { formatSummary } = await import("../android/mitelcel_widget.mjs");
 
 const fixture = {
@@ -179,12 +187,13 @@ assert.equal(baitNoCutoff.cutoffISO, null);
 assert.equal(baitNoCutoff.cutoffDate, "");
 assert.equal(baitNoCutoff.daysLeft, 0);
 
+let currentCacheString = JSON.stringify(baitRes);
 globalThis.FileManager = {
   local: () => ({
     documentsDirectory: () => "/tmp",
     joinPath: (a, b) => `${a}/${b}`,
     fileExists: () => true,
-    readString: () => JSON.stringify(baitRes)
+    readString: () => currentCacheString
   })
 };
 const cachedLater = loadBaitCache(new Date(2026, 9, 28, 8, 0)); // 4 days before Nov 1
@@ -231,6 +240,146 @@ assert.equal(baitUnlimited.planName, "Bait Ilimitado");
 assert.equal(baitUnlimited.daysLeft, 0);
 const wBaitUnl = createBaitWidget(baitUnlimited);
 assert(wBaitUnl.texts.some(t => t.startsWith("Bait Ilimitado • ⏱")));
+
+// 1c. Test Mi Movistar parser, AES-256-GCM decryptor & widget
+const movNow = new Date(2026, 9, 21, 10, 0); // Oct 21, 2026 10:00 local
+const movFixture = {
+  offering: "Movistar Libre",
+  userType: 2,
+  bolton: [
+    {
+      name: "Navegación",
+      vigencia: "28/10/2026",
+      consumption: 65,
+      consumptionLabel: "Llevas 6.50 GB de 10.00 GB",
+      totalBenefit: "10.00 GB"
+    },
+    {
+      name: "Bono Datos Extra",
+      vigencia: "28/10/2026",
+      consumption: 50,
+      consumptionLabel: "Llevas 1.00 GB de 2.00 GB",
+      totalBenefit: "2.00 GB"
+    },
+    {
+      name: "Redes Sociales",
+      vigencia: "28/10/2026",
+      consumption: 0,
+      consumptionLabel: "Ilimitado",
+      totalBenefit: "Ilimitado"
+    },
+    {
+      name: "Minutos",
+      totalBenefit: "Ilimitado"
+    }
+  ],
+  saldos: {
+    totalBalance: "0.00",
+    giftBalance: "0.00",
+    topupsBalanceExpiration: "28/10/2026"
+  }
+};
+
+// Test AES-256-GCM decryption with static guardKey
+const keyBytes = Uint8Array.from("03818954072261267933921453028068", c => c.charCodeAt(0));
+const iv = new Uint8Array(12);
+iv.fill(42);
+const cryptoKey = await globalThis.crypto.subtle.importKey("raw", keyBytes, { name: "AES-GCM" }, false, ["encrypt"]);
+const encBuf = await globalThis.crypto.subtle.encrypt(
+  { name: "AES-GCM", iv, tagLength: 128 },
+  cryptoKey,
+  new TextEncoder().encode(JSON.stringify(movFixture))
+);
+const toB64Url = (buf) => Buffer.from(buf).toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+const cipherPayload = `${toB64Url(encBuf)}:${toB64Url(iv)}`;
+const decryptedStr = await decryptMovistarContent(cipherPayload);
+assert.deepEqual(JSON.parse(decryptedStr), movFixture);
+await assert.rejects(async () => decryptMovistarContent("invalid_format"), /inválido/);
+
+// Test dynamic guardKey extraction and resolution
+assert.equal(
+  extractGuardKey("<script>\nconst guardString = 'MDM4MTg5NTQwNzIyNjEyNjc5MzM5MjE0NTMwMjgwNjg=';\n</script>"),
+  "03818954072261267933921453028068"
+);
+assert.equal(extractGuardKey("<html>sin llave</html>"), null);
+const decryptedWithExplicitKey = await decryptMovistarContent(cipherPayload, "03818954072261267933921453028068");
+assert.deepEqual(JSON.parse(decryptedWithExplicitKey), movFixture);
+
+// Test automatic key rotation self-healing
+const rotatedKey = "88888888888888888888888888888888";
+const rotatedKeyB64 = Buffer.from(rotatedKey).toString("base64");
+const rotatedCryptoKey = await globalThis.crypto.subtle.importKey("raw", Buffer.from(rotatedKey), { name: "AES-GCM" }, false, ["encrypt"]);
+const rotatedEnc = await globalThis.crypto.subtle.encrypt({ name: "AES-GCM", iv, tagLength: 128 }, rotatedCryptoKey, new TextEncoder().encode(JSON.stringify(movFixture)));
+const rotatedPayload = `${toB64Url(rotatedEnc)}:${toB64Url(iv)}`;
+
+const origFetch = globalThis.fetch;
+globalThis.fetch = async (url, opts) => {
+  if (typeof url === "string" && url.includes("login")) {
+    return {
+      text: async () => `<script>const guardString = "${rotatedKeyB64}";</script>`
+    };
+  }
+  return origFetch(url, opts);
+};
+const healedResult = await decryptMovistarContent(rotatedPayload);
+assert.deepEqual(JSON.parse(healedResult), movFixture);
+globalThis.fetch = origFetch;
+
+// Test parser
+assert.throws(() => parseMovistarResponse({ bolton: [] }), /Sin bolsas de datos/);
+assert.throws(() => parseMovistarResponse({ bolton: [{ name: "Redes Sociales" }] }), /Sin bolsas de navegación/);
+
+const movRes = parseMovistarResponse(movFixture, movNow);
+assert.equal(movRes.planName, "Movistar Libre");
+assert.equal(movRes.cutoffDate, "28 de octubre");
+assert.equal(movRes.cutoffISO, "2026-10-28");
+assert.equal(movRes.daysLeft, 7);
+assert.equal(movRes.promo, true);
+assert.equal(movRes.totalMB, 12288);
+assert.equal(movRes.consumedMB, 7680);
+assert.equal(movRes.availableMB, 4608);
+
+const wMov = createMovistarWidget(movRes);
+assert(wMov.texts.includes("Mi Movistar"));
+assert(wMov.texts.includes("Vigencia 28 oct"));
+assert(wMov.texts.includes("7 días"));
+assert(wMov.texts.includes("● 7.50 GB (63%)"));
+assert.deepEqual(wMov.images[0].texts, ["4.50 GB", "libres de 12.0 GB"]);
+
+// Test cache loading for Movistar
+currentCacheString = JSON.stringify(movRes);
+const movCached = loadMovistarCache(new Date(2026, 9, 25, 10, 0)); // 3 days left
+assert.equal(movCached.fromCache, true);
+assert.equal(movCached.daysLeft, 3);
+
+// Test single-bucket unlimited Movistar plan
+const movUnlimited = parseMovistarResponse({
+  offering: "Movistar Ilimitado",
+  bolton: [
+    { name: "Navegación", consumptionLabel: "Ilimitado", totalBenefit: "Ilimitado", vigencia: "28/10/2026" }
+  ]
+}, movNow);
+assert.equal(movUnlimited.planName, "Movistar Ilimitado");
+assert.equal(movUnlimited.promo, false);
+assert.equal(movUnlimited.totalMB, 0);
+assert.equal(movUnlimited.daysLeft, 7);
+const wMovUnl = createMovistarWidget(movUnlimited);
+assert.deepEqual(wMovUnl.images[0].texts, ["Ilimitado", "datos libres"]);
+assert(wMovUnl.texts.includes("● Ilimitado"));
+assert(wMovUnl.texts.includes("● Datos Ilimitado"));
+
+// Test epoch timestamp fallback in saldos.topupsBalanceExpirationDate
+const movEpoch = parseMovistarResponse({
+  offering: "Movistar Prepago",
+  bolton: [
+    { name: "Navegación", consumptionLabel: "Llevas 1.00 GB de 2.00 GB" }
+  ],
+  saldos: {
+    topupsBalanceExpirationDate: new Date(2026, 9, 28, 23, 59, 59).getTime()
+  }
+}, movNow);
+assert.equal(movEpoch.daysLeft, 7);
+assert.equal(movEpoch.cutoffISO, "2026-10-28");
 
 // 2. Test Swift parser with the same fixture, error rejection, phone normalization & footerText
 const swiftSource = readFileSync("MiTelcelWidget/TelcelNetworkService.swift", "utf8");

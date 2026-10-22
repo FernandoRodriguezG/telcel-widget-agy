@@ -1,6 +1,6 @@
-# Mi Telcel & Mi Bait iOS Widgets (WidgetKit & Scriptable)
+# Widgets de Consumo Móvil para iOS (Telcel, Bait y Movistar)
 
-Widgets para iOS que muestran en tiempo real los **GB disponibles combinados (Plan Base + Datos Promocionales)**, el **consumo acumulado**, los **días restantes** y la **siguiente fecha de corte/vigencia** de tu línea **Mi Telcel** o **Mi Bait**.
+Widgets para iOS que muestran en tiempo real los **GB disponibles combinados (Plan Base + Datos Promocionales)**, el **consumo acumulado**, los **días restantes** y la **siguiente fecha de corte/vigencia** de tu línea **Mi Telcel**, **Mi Bait** o **Mi Movistar**.
 
 <p align="center">
   <img src="assets/widget_preview.png" alt="Mi Telcel Widget Preview" width="280">
@@ -10,11 +10,11 @@ Widgets para iOS que muestran en tiempo real los **GB disponibles combinados (Pl
 
 ## Características
 
-- **Soporte multi-operador (Scriptable):** Scripts independientes y listos para usar en [`src/MiTelcelWidget.js`](src/MiTelcelWidget.js) (**Telcel**) y [`src/MiBaitWidget.js`](src/MiBaitWidget.js) (**Bait**, consulta directa con solo tu número a 10 dígitos, sin contraseña).
+- **Soporte multi-operador (Scriptable):** Scripts independientes y listos para usar en [`src/MiTelcelWidget.js`](src/MiTelcelWidget.js) (**Telcel**), [`src/MiBaitWidget.js`](src/MiBaitWidget.js) (**Bait**, consulta directa sin contraseña) y [`src/MiMovistarWidget.js`](src/MiMovistarWidget.js) (**Movistar**, login interactivo con WebView por reCAPTCHA v3 y desencriptado AES-256-GCM).
 - **Suma inteligente de bolsas:** Combina automáticamente los datos del Plan Base y los Datos Promocionales/Bonos vigentes.
 - **Fecha de corte y vigencia:** Muestra los días restantes y la fecha de corte o vigencia exacta reportada por el operador.
 - **Medidor semicircular y presupuesto diario:** Arco bicolor (rojo gastado vs. verde disponible), porcentaje usado (`%`) y cálculo de ritmo diario disponible (`MB/d` o `GB/d`).
-- **Almacenamiento seguro:** Las credenciales nunca se guardan en texto plano; se almacenan en el **Keychain de iOS**.
+- **Almacenamiento seguro:** Las credenciales y tokens nunca se guardan en texto plano; se almacenan en el **Keychain de iOS**.
 - **Caché y desconexión segura:** Guarda la última consulta en caché para carga instantánea y revoca el token SSO de Telcel al terminar para evitar bloqueos por sesiones concurrentes.
 - **Dos métodos de uso:**
   1. **Scriptable:** Sin Mac, sin Xcode, listo en 2 minutos desde el iPhone.
@@ -33,23 +33,24 @@ Descarga la app gratuita **[Scriptable](https://apps.apple.com/app/scriptable/id
 1. Según tu operador, abre el archivo correspondiente en este repositorio:
    - **Telcel:** [`src/MiTelcelWidget.js`](src/MiTelcelWidget.js)
    - **Bait:** [`src/MiBaitWidget.js`](src/MiBaitWidget.js)
+   - **Movistar:** [`src/MiMovistarWidget.js`](src/MiMovistarWidget.js)
 2. Copia todo su contenido al portapapeles de tu iPhone (puedes usar el Portapapeles Universal de Apple, AirDrop, o enviártelo por mensaje).
 
 ### 3. Crear el script en Scriptable
 1. Abre **Scriptable** en tu iPhone.
 2. Pulsa el botón **`+`** en la esquina superior derecha para crear un nuevo script.
-3. Toca el título en la parte superior (dice *Untitled Script*) y cámbialo a **`MiTelcel`** o **`MiBait`**.
+3. Toca el título en la parte superior (dice *Untitled Script*) y cámbialo a **`MiTelcel`**, **`MiBait`** o **`MiMovistar`**.
 4. Pega el código copiado dentro del editor.
 5. Pulsa **Done** en la esquina superior izquierda.
 
 ### 4. Configurar tus datos por primera vez
-1. Abre nuevamente el script (**MiTelcel** o **MiBait**) dentro de Scriptable.
+1. Abre nuevamente el script (**MiTelcel**, **MiBait** o **MiMovistar**) dentro de Scriptable.
 2. Pulsa el botón **Play (▶)** en la esquina inferior derecha.
-3. Aparecerá una alerta de configuración:
-   - **En Mi Telcel:** Ingresa tu **número a 10 dígitos** y tu **contraseña de Mi Telcel**.
+3. Se iniciará la configuración según el operador:
+   - **En Mi Telcel:** Ingresa tu **número a 10 dígitos** y tu **contraseña de Mi Telcel** (se guardan en Keychain).
    - **En Mi Bait:** Ingresa únicamente tu **número Bait a 10 dígitos** (no requiere contraseña).
-4. Pulsa **Guardar**. Tus datos se guardarán en el **Keychain de iOS**.
-5. El script ejecutará la consulta y mostrará la vista previa del widget. Pulsa **Done**.
+   - **En Mi Movistar:** Se abrirá una ventana de navegador (WebView) en `mi.movistar.com.mx/login`. Inicia sesión normalmente para superar el reCAPTCHA v3; el widget capturará el token `p_id` en el Keychain y lo usará automáticamente para las siguientes actualizaciones en segundo plano.
+4. El script ejecutará la consulta y mostrará la vista previa del widget. Pulsa **Done**.
 
 ### 5. Agregar el Widget a tu Pantalla de Inicio
 1. Ve a la pantalla de inicio de tu iPhone.
@@ -58,7 +59,7 @@ Descarga la app gratuita **[Scriptable](https://apps.apple.com/app/scriptable/id
 4. Busca y selecciona **Scriptable**.
 5. Elige el tamaño **Pequeño (Small)** y toca **Agregar widget**.
 6. Mientras los íconos sigan temblando, toca el widget recién agregado (o mantenlo presionado y selecciona **Editar widget**).
-7. En el campo **Script**, selecciona **`MiTelcel`** o **`MiBait`**.
+7. En el campo **Script**, selecciona **`MiTelcel`**, **`MiBait`** o **`MiMovistar`**.
 8. En **When Interacting** (Al interactuar), selecciona **Run Script** (Ejecutar script).
 9. Toca fuera del widget para guardar. ¡Listo! El widget se actualizará periódicamente.
 
@@ -128,6 +129,7 @@ Puedes probar las llamadas y verificar el formato devuelto por Mi Telcel usando 
 ├── src/
 │   ├── MiTelcelWidget.js           # Widget autónomo Mi Telcel para Scriptable (iOS)
 │   ├── MiBaitWidget.js             # Widget autónomo Mi Bait para Scriptable (iOS)
+│   ├── MiMovistarWidget.js         # Widget autónomo Mi Movistar para Scriptable (iOS)
 │   └── ResetearPassword.js         # Script para limpiar credenciales de Telcel en Keychain
 ├── android/
 │   ├── mitelcel_widget.mjs         # Prototipo Node.js para Termux / KWGT (Android)
