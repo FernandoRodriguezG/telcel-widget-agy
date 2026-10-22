@@ -11,11 +11,13 @@ Widgets para iOS que muestran en tiempo real los **GB disponibles combinados (Pl
 ## Características
 
 - **Soporte multi-operador (Scriptable):** Scripts independientes y listos para usar en [`src/MiTelcelWidget.js`](src/MiTelcelWidget.js) (**Telcel**), [`src/MiBaitWidget.js`](src/MiBaitWidget.js) (**Bait**, consulta directa sin contraseña) y [`src/MiMovistarWidget.js`](src/MiMovistarWidget.js) (**Movistar**, login interactivo con WebView por reCAPTCHA v3 y desencriptado AES-256-GCM).
-- **Suma inteligente de bolsas:** Combina automáticamente los datos del Plan Base y los Datos Promocionales/Bonos vigentes.
-- **Fecha de corte y vigencia:** Muestra los días restantes y la fecha de corte o vigencia exacta reportada por el operador.
+- **Validación interactiva de credenciales:** Valida tus credenciales en vivo contra la API del operador antes de guardarlas en el Keychain; detecta errores de captura y problemas de conectividad con reintento guiado.
+- **Suma inteligente de bolsas:** Combina automáticamente los datos del Plan Base y los Datos Promocionales/Bonos vigentes en una sola pasada eficiente.
+- **Fecha de corte y vigencia:** Muestra los días restantes y la fecha de corte o vigencia exacta reportada por el operador (recalculada dinámicamente al leer desde caché).
 - **Medidor semicircular y presupuesto diario:** Arco bicolor (rojo gastado vs. verde disponible), porcentaje usado (`%`) y cálculo de ritmo diario disponible (`MB/d` o `GB/d`).
-- **Almacenamiento seguro:** Las credenciales y tokens nunca se guardan en texto plano; se almacenan en el **Keychain de iOS**.
+- **Almacenamiento seguro:** Las credenciales y tokens nunca se guardan en texto plano; se almacenan en el **Keychain de iOS** aislados por dispositivo.
 - **Caché y desconexión segura:** Guarda la última consulta en caché para carga instantánea y revoca el token SSO de Telcel al terminar para evitar bloqueos por sesiones concurrentes.
+- **Recuperación táctil de errores:** Estado visual con icono de advertencia (`⚠️`) y copy accionable ante fallos de conexión o sesión expirada; tocar el widget abre el script en Scriptable (`scriptable:///run`) para resolverlo en un toque.
 - **Dos métodos de uso:**
   1. **Scriptable:** Sin Mac, sin Xcode, listo en 2 minutos desde el iPhone.
   2. **Nativo WidgetKit / SwiftUI:** Proyecto Xcode completo con app contenedora y widget para iOS 17+.
@@ -46,11 +48,12 @@ Descarga la app gratuita **[Scriptable](https://apps.apple.com/app/scriptable/id
 ### 4. Configurar tus datos por primera vez
 1. Abre nuevamente el script (**MiTelcel**, **MiBait** o **MiMovistar**) dentro de Scriptable.
 2. Pulsa el botón **Play (▶)** en la esquina inferior derecha.
-3. Se iniciará la configuración según el operador:
-   - **En Mi Telcel:** Ingresa tu **número a 10 dígitos** y tu **contraseña de Mi Telcel** (se guardan en Keychain).
-   - **En Mi Bait:** Ingresa únicamente tu **número Bait a 10 dígitos** (no requiere contraseña).
-   - **En Mi Movistar:** Se abrirá una ventana de navegador (WebView) en `mi.movistar.com.mx/login`. Inicia sesión normalmente para superar el reCAPTCHA v3; el widget capturará el token `p_id` en el Keychain y lo usará automáticamente para las siguientes actualizaciones en segundo plano.
-4. El script ejecutará la consulta y mostrará la vista previa del widget. Pulsa **Done**.
+3. Se iniciará la configuración guiada con **validación previa en vivo**:
+   - **En Mi Telcel:** Ingresa tu **número a 10 dígitos** y tu **contraseña de Mi Telcel**. El script valida la autenticación ante el servicio SSO oficial (y revoca de inmediato el token de prueba) antes de guardar los datos en Keychain.
+   - **En Mi Bait:** Ingresa únicamente tu **número Bait a 10 dígitos** (no requiere contraseña). Se verifica la línea contra el API de Altán antes de guardarla.
+   - **En Mi Movistar:** Se abrirá una ventana de navegador (WebView) en `mi.movistar.com.mx/login`. Inicia sesión normalmente para superar el reCAPTCHA v3; el widget capturará el token `p_id` (`ec_auth`), validará el acceso al consumo con su llave `guardKey` y lo guardará en el Keychain para las siguientes actualizaciones en segundo plano.
+4. Si ingresaste un dato incorrecto o hay una falla de red, el script te avisará de inmediato y te permitirá reintentar sin guardar credenciales inválidas.
+5. Tras la validación, el script ejecutará la consulta y mostrará la vista previa del widget. Pulsa **Done**.
 
 ### 5. Agregar el Widget a tu Pantalla de Inicio
 1. Ve a la pantalla de inicio de tu iPhone.
@@ -63,15 +66,18 @@ Descarga la app gratuita **[Scriptable](https://apps.apple.com/app/scriptable/id
 8. En **When Interacting** (Al interactuar), selecciona **Run Script** (Ejecutar script).
 9. Toca fuera del widget para guardar. ¡Listo! El widget se actualizará periódicamente.
 
-### 6. ¿Credenciales incorrectas? Cómo restablecerlas (Resetear contraseña)
-Si ingresaste por error un número, contraseña o sesión equivocados, quedarán almacenados en el Keychain de iOS. Para borrarlos y poder ingresarlos de nuevo:
+> [!TIP]
+> Si el widget alguna vez pierde conexión o requiere renovar sesión (por ejemplo en Movistar), mostrará un estado de advertencia (`⚠️`) y al tocarlo se abrirá automáticamente en Scriptable para resolverlo en un toque.
+
+### 6. Restablecer credenciales o cambiar de línea (Resetear contraseña)
+Gracias a la validación previa en vivo, el widget evita guardar credenciales o números inválidos durante la configuración inicial. Si cambiaste tu contraseña en el portal de la operadora, cambiaste de número o deseas registrar otra cuenta:
 1. Crea un nuevo script en Scriptable y nómbralo **`ResetearPassword`** (o **`resetear password`**).
 2. Pega el código de [`src/ResetearPassword.js`](src/ResetearPassword.js).
 3. Ejecútalo pulsando **Play (▶)** y elige el operador a restablecer (o **Todos**):
    - **Mi Telcel:** borra `TELCEL_PHONE` y `TELCEL_PASS`.
    - **Mi Bait:** borra `BAIT_PHONE`.
    - **Mi Movistar:** borra el token de sesión `MOVISTAR_PID`.
-4. Vuelve a abrir el script del operador (**`MiTelcel`**, **`MiBait`** o **`MiMovistar`**) y pulsa **Play (▶)** para que te solicite de nuevo tus datos (en Movistar se abrirá otra vez el login en WebView).
+4. Vuelve a abrir el script del operador (**`MiTelcel`**, **`MiBait`** o **`MiMovistar`**) y pulsa **Play (▶)** para ingresar tus nuevos datos (en Movistar se abrirá otra vez el login en WebView).
 
 ---
 
@@ -103,15 +109,22 @@ Para usuarios con Mac y Xcode que deseen compilar la app y extensión nativa:
 
 ---
 
-## Validación de Endpoints desde Terminal (macOS)
+## Pruebas y Validación desde Terminal (macOS)
 
-Puedes probar las llamadas y verificar el formato devuelto por Mi Telcel usando el script automatizado:
+### 1. Suite de Pruebas Automatizadas (Offline / Mocks)
+Valida en un solo comando todos los parsers JS (Telcel, Bait y Movistar con descifrado AES-256-GCM simulado), validación interactiva de credenciales y red, renderizado `DrawContext`, resumen Android y parser nativo Swift:
+```sh
+node tests/test_parser.mjs
+```
+
+### 2. Validación de Endpoints en Vivo con Telcel
+Puedes probar las llamadas reales y verificar el formato devuelto por Mi Telcel usando el script automatizado:
 
 1. Copia `.env.example` a `.env` y configura tus credenciales:
    ```zsh
    cp .env.example .env
    ```
-2. Ejecuta el probe:
+2. Ejecuta el probe seguro (revoca la sesión SSO al terminar):
    ```zsh
    zsh .agents/skills/telcel-api-probe/scripts/probe_telcel.sh
    ```
@@ -130,6 +143,8 @@ Puedes probar las llamadas y verificar el formato devuelto por Mi Telcel usando 
 │   ├── MiBaitWidget.js             # Widget autónomo Mi Bait para Scriptable (iOS)
 │   ├── MiMovistarWidget.js         # Widget autónomo Mi Movistar para Scriptable (iOS)
 │   └── ResetearPassword.js         # Script para limpiar credenciales de Telcel, Bait o Movistar en Keychain
+├── tests/
+│   └── test_parser.mjs             # Suite de pruebas unitarias (Telcel, Bait, Movistar, Keychain, UI y Swift)
 ├── android/
 │   ├── mitelcel_widget.mjs         # Prototipo Node.js para Termux / KWGT (Android)
 │   ├── shortcuts_mitelcel.sh       # Lanzador para Termux:Widget (~/.shortcuts)
@@ -156,7 +171,9 @@ Puedes probar las llamadas y verificar el formato devuelto por Mi Telcel usando 
 
 - **Sin servidores intermediarios:** Las peticiones viajan directamente desde tu iPhone a los servidores oficiales de cada operador:
   - **Telcel:** `wbl.telcel-id.com`, `mi-telcel.smapps.mx`, `api.journeys.telcel.wavebybemobi.com`.
-  - **Bait:** `mibait.com` (consulta por número, sin contraseña).
-  - **Movistar:** `mi.movistar.com.mx` (login interactivo en WebView y consulta de consumos).
-- **Keychain de iOS:** Contraseñas, números y tokens (`p_id` de Movistar) se almacenan mediante el subsistema de seguridad de iOS (`Keychain`), no en texto plano en el código.
-- **Revocación de sesión (solo Telcel):** Cada consulta de Telcel revoca activamente el token SSO generado (`/sso/revoke`), evitando bloqueos por inicios de sesión simultáneos en la app oficial. Bait no abre sesión; Movistar reutiliza el `p_id` guardado hasta que expira y entonces pide iniciar sesión de nuevo al abrir el script.
+  - **Bait:** `mibait.com` (consulta directa por número a través del proxy Ordenaris/Altán, sin contraseña).
+  - **Movistar:** `mi.movistar.com.mx` (login interactivo en WebView y consulta de consumos cifrados con AES-256-GCM).
+- **Validación previa:** Credenciales y tokens se verifican directamente contra los servidores del operador antes de persistirse en el dispositivo.
+- **Keychain de iOS:** Contraseñas, números y tokens (`p_id` de Movistar) se almacenan mediante el subsistema de seguridad de iOS (`Keychain`) con protección por dispositivo (`kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`), nunca en texto plano en el código.
+- **Descubrimiento dinámico de llaves con respaldo auditado:** Los tokens y llaves públicas de servicio (`MTL_AUTHORIZATION_BASIC`, `x-ord-service`, `guardKey`) se descubren dinámicamente de los portales web oficiales y cuentan con valores de respaldo estáticos públicos auditados (`Sec-Safe`), emitiendo advertencias en consola si se requiere fallback.
+- **Revocación de sesión obligatoria (Telcel):** Cada consulta de Telcel (incluyendo la validación inicial de credenciales) revoca activamente el token SSO generado (`/sso/revoke`), evitando bloqueos por inicios de sesión simultáneos en la app oficial. Bait no abre sesión; Movistar reutiliza el `p_id` guardado hasta su expiración.
