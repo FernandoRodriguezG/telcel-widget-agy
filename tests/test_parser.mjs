@@ -8,6 +8,7 @@ globalThis.Size = class { constructor(w, h) { this.width = w; this.height = h; }
 globalThis.Rect = class { constructor(x, y, w, h) { this.x = x; this.y = y; this.width = w; this.height = h; } };
 globalThis.Point = class { constructor(x, y) { this.x = x; this.y = y; } };
 globalThis.Font = {
+  systemFont: (s) => ({ size: s, weight: "regular" }),
   boldSystemFont: (s) => ({ size: s, weight: "bold" }),
   semiboldSystemFont: (s) => ({ size: s, weight: "semibold" }),
   mediumSystemFont: (s) => ({ size: s, weight: "medium" }),
@@ -38,7 +39,7 @@ const makeStack = (texts, images) => ({
   centerAlignContent() {},
   setPadding() {},
   addSpacer() {},
-  addText(t) { texts.push(t); return {}; },
+  addText(t) { texts.push(t); return { centerAlignText() {} }; },
   addStack() { return makeStack(texts, images); },
   addImage(img) { images.push(img); return { centerAlignImage() {} }; }
 });
@@ -130,6 +131,14 @@ assert.equal(wZero.images[0].arcs, 2); // track + green left only
 
 const wEmpty = createWidget({ ...jsRes, totalMB: 0, consumedMB: 0, availableMB: 0 });
 assert.equal(wEmpty.images[0].arcs, 1); // track only when totalMB == 0
+
+const wTelcelNull = createWidget(null);
+assert(wTelcelNull.texts.includes("⚠️"));
+assert(wTelcelNull.texts.some(t => t.includes("Abre Scriptable para revisar tu conexión o credenciales")));
+assert.equal(wTelcelNull.url, "scriptable://");
+globalThis.Script = { name: () => "Mi Telcel" };
+assert.equal(createWidget(null).url, "scriptable:///run?scriptName=Mi%20Telcel");
+delete globalThis.Script;
 
 // 1b. Test Mi Bait parser & widget
 const baitNow = new Date(2026, 9, 20, 10, 9); // Oct 20, 2026 10:09 local
@@ -418,6 +427,14 @@ assert.equal(baitUnlimited.daysLeft, 0);
 const wBaitUnl = createBaitWidget(baitUnlimited);
 assert(wBaitUnl.texts.some(t => t.startsWith("Bait Ilimitado • ⏱")));
 
+const wBaitNull = createBaitWidget(null);
+assert(wBaitNull.texts.includes("⚠️"));
+assert(wBaitNull.texts.some(t => t.includes("Abre Scriptable para revisar tu conexión o número")));
+assert.equal(wBaitNull.url, "scriptable://");
+globalThis.Script = { name: () => "Mi Bait" };
+assert.equal(createBaitWidget(null).url, "scriptable:///run?scriptName=Mi%20Bait");
+delete globalThis.Script;
+
 // 1d. Test Mi Movistar parser, AES-256-GCM decryptor & widget
 const movNow = new Date(2026, 9, 21, 10, 0); // Oct 21, 2026 10:00 local
 const movFixture = {
@@ -574,6 +591,14 @@ const wMovUnl = createMovistarWidget(movUnlimited);
 assert.deepEqual(wMovUnl.images[0].texts, ["Ilimitado", "datos libres"]);
 assert(wMovUnl.texts.includes("● Ilimitado"));
 assert(wMovUnl.texts.includes("● Datos Ilimitado"));
+
+const wMovNull = createMovistarWidget(null);
+assert(wMovNull.texts.includes("⚠️"));
+assert(wMovNull.texts.some(t => t.includes("Abre Scriptable para iniciar sesión de nuevo")));
+assert.equal(wMovNull.url, "scriptable://");
+globalThis.Script = { name: () => "Mi Movistar" };
+assert.equal(createMovistarWidget(null).url, "scriptable:///run?scriptName=Mi%20Movistar");
+delete globalThis.Script;
 
 // Test epoch timestamp fallback in saldos.topupsBalanceExpirationDate
 const movEpoch = parseMovistarResponse({
@@ -900,6 +925,8 @@ let badJson = #"{"blocks":{"children":[{"id":"alert-error","config":{"value":"Ma
 assert((try? TelcelNetworkService.parseHomeFlowJSON(badJson)) == nil)
 assert(TelcelUsageEntry.errorFallback.totalMB == 0)
 assert(TelcelUsageEntry.errorFallback.cutoffDate == "Verificar cuenta")
+assert(TelcelUsageEntry.errorFallback == TelcelUsageEntry.errorFallback)
+assert(entry != TelcelUsageEntry.errorFallback)
 print("✅ Swift & JS parser tests passed!")
 `;
 

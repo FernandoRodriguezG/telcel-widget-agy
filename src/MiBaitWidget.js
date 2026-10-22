@@ -43,7 +43,7 @@ async function getCredentials() {
   if ((phone.length !== 10 || phone === "5512345678") && !config.runsInWidget) {
     const alert = new Alert();
     alert.title = "Configurar Mi Bait";
-    alert.message = "Ingresa tu número Bait a 10 dígitos (no requiere contraseña).";
+    alert.message = "Para mostrar tu consumo en vivo, ingresa tu número Bait a 10 dígitos (no requiere contraseña). Se guardará de forma segura en tu dispositivo.";
     alert.addTextField("Número a 10 dígitos", phone);
     alert.addAction("Guardar");
     alert.addCancelAction("Cancelar");
@@ -285,9 +285,18 @@ function createWidget(data) {
   w.url = "https://mibait.com/home";
 
   if (!data) {
-    const errTxt = w.addText("Sin datos de Mi Bait. Verificar número o red.");
+    const sName = typeof Script !== "undefined" && Script.name();
+    w.url = sName ? `scriptable:///run?scriptName=${encodeURIComponent(sName)}` : "scriptable://";
+    w.addSpacer();
+    const iconTxt = w.addText("⚠️");
+    iconTxt.font = Font.systemFont(24);
+    iconTxt.centerAlignText();
+    w.addSpacer(8);
+    const errTxt = w.addText("No pudimos cargar tus datos. Abre Scriptable para revisar tu conexión o número.");
     errTxt.textColor = COLORS.white;
     errTxt.font = Font.mediumSystemFont(12);
+    errTxt.centerAlignText();
+    w.addSpacer();
     return w;
   }
 

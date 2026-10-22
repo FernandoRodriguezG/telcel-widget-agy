@@ -68,7 +68,7 @@ async function loginWithWebView() {
   if (!capturedPid && typeof Alert !== "undefined" && typeof config !== "undefined" && !config.runsInWidget) {
     const alert = new Alert();
     alert.title = "Configurar Mi Movistar";
-    alert.message = "Pega tu token p_id (ec_auth) si ya iniciaste sesión en el portal:";
+    alert.message = "Para mostrar tu consumo en vivo, pega tu token p_id (ec_auth) si ya iniciaste sesión en el portal. Se guardará de forma segura en tu dispositivo.";
     alert.addSecureTextField("Token p_id", "");
     alert.addAction("Guardar");
     alert.addCancelAction("Cancelar");
@@ -430,9 +430,18 @@ function createWidget(data) {
   w.url = "https://mi.movistar.com.mx/consumptions";
 
   if (!data) {
-    const errTxt = w.addText("Sin datos de Mi Movistar. Abre el script para iniciar sesión.");
+    const sName = typeof Script !== "undefined" && Script.name();
+    w.url = sName ? `scriptable:///run?scriptName=${encodeURIComponent(sName)}` : "scriptable://";
+    w.addSpacer();
+    const iconTxt = w.addText("⚠️");
+    iconTxt.font = Font.systemFont(24);
+    iconTxt.centerAlignText();
+    w.addSpacer(8);
+    const errTxt = w.addText("No pudimos cargar tus datos. Abre Scriptable para iniciar sesión de nuevo.");
     errTxt.textColor = COLORS.white;
     errTxt.font = Font.mediumSystemFont(12);
+    errTxt.centerAlignText();
+    w.addSpacer();
     return w;
   }
 
