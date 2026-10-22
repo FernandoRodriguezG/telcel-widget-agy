@@ -89,9 +89,16 @@ async function requestTelcel(url, method, headers, body, parseJson = true) {
     req.method = method;
     req.headers = headers;
     if (body) req.body = body;
-    return parseJson ? req.loadJSON() : req.load();
+    const result = await (parseJson ? req.loadJSON() : req.load());
+    if (req.response && (req.response.statusCode < 200 || req.response.statusCode >= 300)) {
+      throw new Error(`Error en la solicitud: código de estado ${req.response.statusCode}. Por favor, inténtalo más tarde.`);
+    }
+    return result;
   }
   const res = await fetch(url, { method, headers, body: body || undefined });
+  if (!res.ok) {
+    throw new Error(`Error en la solicitud: código de estado ${res.status}. Por favor, inténtalo más tarde.`);
+  }
   return parseJson ? res.json() : res.text();
 }
 
@@ -610,5 +617,5 @@ if (typeof Script !== "undefined") {
   main();
 }
 if (typeof module !== "undefined") {
-  module.exports = { fetchTelcelData, parseTelcelResponse, createWidget, loadCache };
+  module.exports = { fetchTelcelData, parseTelcelResponse, createWidget, loadCache, requestTelcel };
 }
