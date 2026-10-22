@@ -517,18 +517,7 @@ function createWidget(data) {
   w.url = "https://www.mitelcel.com/mitelcel/login";
 
   if (!data) {
-    const sName = typeof Script !== "undefined" && Script.name();
-    w.url = sName ? `scriptable:///run?scriptName=${encodeURIComponent(sName)}` : "scriptable://";
-    w.addSpacer();
-    const iconTxt = w.addText("⚠️");
-    iconTxt.font = Font.systemFont(24);
-    iconTxt.centerAlignText();
-    w.addSpacer(8);
-    const errTxt = w.addText("No pudimos cargar tus datos. Abre Scriptable para revisar tu conexión o credenciales.");
-    errTxt.textColor = COLORS.white;
-    errTxt.font = Font.mediumSystemFont(12);
-    errTxt.centerAlignText();
-    w.addSpacer();
+    renderErrorWidget(w, "No pudimos cargar tus datos. Abre Scriptable para revisar tu conexión o credenciales.");
     return w;
   }
 
@@ -547,20 +536,51 @@ function createWidget(data) {
     : `${(data.consumedMB / 1000).toFixed(2)} GB`;
   const shortCutoff = String(data.cutoffDate || "").replace(/\s+de\s+([a-záéíóú]{3})[a-záéíóú]*/i, " $1");
 
-  // 1. Header: Marca + Corte a la izquierda, Píldora prominente de Días Restantes a la derecha
+  renderHeader(w, "Mi Telcel", shortCutoff ? `Corte ${shortCutoff}` : "", data.daysLeft);
+  w.addSpacer(4);
+  renderGauge(w, data.totalMB > 0 ? ratio : null, `${remainingGB} GB`, `libres de ${totalGB} GB`);
+  w.addSpacer(4);
+  renderStats(w, `● ${spentShort} (${percentUsed}%)`, `● ${dailyAllowance}`);
+  w.addSpacer(3);
+  renderFooter(w, data.promo ? "Plan+Promo" : (data.planName || "Plan"), data.updatedAt, data.fromCache);
+
+  return w;
+}
+
+
+// Note: UI render logic (renderErrorWidget, renderHeader, renderGauge, renderStats, renderFooter)
+// is intentionally duplicated across standalone widget scripts (MiTelcelWidget.js, MiBaitWidget.js, MiMovistarWidget.js)
+// so each file can be copied directly into the iOS Scriptable app without external module dependencies.
+
+function renderErrorWidget(w, errorMessage) {
+  const sName = typeof Script !== "undefined" && Script.name();
+  w.url = sName ? `scriptable:///run?scriptName=${encodeURIComponent(sName)}` : "scriptable://";
+  w.addSpacer();
+  const iconTxt = w.addText("⚠️");
+  iconTxt.font = Font.systemFont(24);
+  iconTxt.centerAlignText();
+  w.addSpacer(8);
+  const errTxt = w.addText(errorMessage);
+  errTxt.textColor = COLORS.white;
+  errTxt.font = Font.mediumSystemFont(12);
+  errTxt.centerAlignText();
+  w.addSpacer();
+}
+
+function renderHeader(w, brandName, cutoffText, daysLeft) {
   const headerStack = w.addStack();
   headerStack.layoutHorizontally();
   headerStack.centerAlignContent();
 
   const titleCol = headerStack.addStack();
   titleCol.layoutVertically();
-  const brandTxt = titleCol.addText("Mi Telcel");
+  const brandTxt = titleCol.addText(brandName);
   brandTxt.font = Font.boldSystemFont(11);
   brandTxt.textColor = COLORS.white;
-  if (shortCutoff) {
-    const cutoffTxt = titleCol.addText(`Corte ${shortCutoff}`);
-    cutoffTxt.font = Font.regularSystemFont(9.5);
-    cutoffTxt.textColor = COLORS.subtitleGray;
+  if (cutoffText) {
+    const cutoffTxtEl = titleCol.addText(cutoffText);
+    cutoffTxtEl.font = Font.regularSystemFont(9.5);
+    cutoffTxtEl.textColor = COLORS.subtitleGray;
   }
 
   headerStack.addSpacer();
@@ -570,28 +590,25 @@ function createWidget(data) {
   daysPill.cornerRadius = 7;
   daysPill.setPadding(3, 7, 3, 7);
   daysPill.centerAlignContent();
-  const daysColor = data.daysLeft <= 2 ? COLORS.alertRed : data.daysLeft <= 5 ? COLORS.warnYellow : COLORS.white;
-  const daysTxt = daysPill.addText(`${data.daysLeft} ${data.daysLeft === 1 ? "día" : "días"}`);
+  const daysColor = daysLeft <= 2 ? COLORS.alertRed : daysLeft <= 5 ? COLORS.warnYellow : COLORS.white;
+  const daysTxt = daysPill.addText(`${daysLeft} ${daysLeft === 1 ? "día" : "días"}`);
   daysTxt.font = Font.boldSystemFont(13);
   daysTxt.textColor = daysColor;
+}
 
-  w.addSpacer(4);
-
-  // 2. Semicírculo (Rojo = gastado, Verde = disponible) + GB Libres al centro
-  const gaugeRatio = data.totalMB > 0 ? ratio : null;
-  const gaugeImg = w.addImage(drawSemicircleGauge(gaugeRatio, `${remainingGB} GB`, `libres de ${totalGB} GB`));
+function renderGauge(w, gaugeRatio, mainLabel, subLabel) {
+  const gaugeImg = w.addImage(drawSemicircleGauge(gaugeRatio, mainLabel, subLabel));
   gaugeImg.resizable = true;
   gaugeImg.imageSize = new Size(134, 68);
   gaugeImg.centerAlignImage();
+}
 
-  w.addSpacer(4);
-
-  // 3. Fila de lectura inmediata: Gastado (Rojo) vs Presupuesto diario (Verde)
+function renderStats(w, spentLabel, paceLabel) {
   const statsRow = w.addStack();
   statsRow.layoutHorizontally();
   statsRow.centerAlignContent();
 
-  const spentTxt = statsRow.addText(`● ${spentShort} (${percentUsed}%)`);
+  const spentTxt = statsRow.addText(spentLabel);
   spentTxt.font = Font.semiboldSystemFont(10);
   spentTxt.textColor = COLORS.spentRed;
   spentTxt.lineLimit = 1;
@@ -599,29 +616,26 @@ function createWidget(data) {
 
   statsRow.addSpacer();
 
-  const paceTxt = statsRow.addText(`● ${dailyAllowance}`);
+  const paceTxt = statsRow.addText(paceLabel);
   paceTxt.font = Font.semiboldSystemFont(10);
   paceTxt.textColor = COLORS.brandGreen;
   paceTxt.lineLimit = 1;
   paceTxt.minimumScaleFactor = 0.75;
+}
 
-  w.addSpacer(3);
-
-  // 4. Pie de página: Bolsas incluidas + hora de actualización
+function renderFooter(w, promoLabel, updatedAt, fromCache) {
   const footerStack = w.addStack();
   footerStack.layoutHorizontally();
   footerStack.centerAlignContent();
 
-  const promoLabel = data.promo ? "Plan+Promo" : (data.planName || "Plan");
-  const cacheIndicator = data.fromCache ? " ☁️" : "";
-  const footerTxt = footerStack.addText(`${promoLabel} • ⏱ ${data.updatedAt}${cacheIndicator}`);
+  const cacheIndicator = fromCache ? " ☁️" : "";
+  const footerTxt = footerStack.addText(`${promoLabel} • ⏱ ${updatedAt}${cacheIndicator}`);
   footerTxt.font = Font.regularSystemFont(9.5);
   footerTxt.textColor = COLORS.subtitleGray;
   footerTxt.lineLimit = 1;
   footerTxt.minimumScaleFactor = 0.8;
-
-  return w;
 }
+
 
 // Note: Drawing logic (drawArc, drawSemicircleGauge) is intentionally duplicated
 // across standalone widget scripts (MiTelcelWidget.js, MiBaitWidget.js, MiMovistarWidget.js)
