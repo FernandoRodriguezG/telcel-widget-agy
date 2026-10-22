@@ -1,4 +1,4 @@
-# Widgets de Consumo Móvil para iOS (Telcel, Bait y Movistar)
+# Widgets de Consumo Móvil para iOS y Android (Telcel, Bait y Movistar)
 
 Widgets para iOS que muestran en tiempo real los **GB disponibles combinados (Plan Base + Datos Promocionales)**, el **consumo acumulado**, los **días restantes** y la **siguiente fecha de corte/vigencia** de tu línea **Mi Telcel**, **Mi Bait** o **Mi Movistar**.
 
