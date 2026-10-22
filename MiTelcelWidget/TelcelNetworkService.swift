@@ -139,11 +139,18 @@ public actor TelcelNetworkService {
 
         var allSucceeded = true
         for key in keys {
-            if let value = getKeychain(key) {
-                let success = setKeychain(key, value)
-                if !success {
-                    allSucceeded = false
-                }
+            let query: [CFString: Any] = [
+                kSecClass: kSecClassGenericPassword,
+                kSecAttrService: "mx.mitelcel.widget",
+                kSecAttrAccount: key
+            ]
+            let attrsToUpdate: [CFString: Any] = [
+                kSecAttrAccessible: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+            ]
+            let status = SecItemUpdate(query as CFDictionary, attrsToUpdate as CFDictionary)
+            // If the item doesn't exist (errSecItemNotFound), it doesn't need migrating, so treat it as success.
+            if status != errSecSuccess && status != errSecItemNotFound {
+                allSucceeded = false
             }
         }
         if allSucceeded {
