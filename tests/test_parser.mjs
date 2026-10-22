@@ -50,7 +50,7 @@ globalThis.ListWidget = class {
   }
 };
 const require = createRequire(import.meta.url);
-const { parseTelcelResponse, createWidget, loadCache } = require("../src/MiTelcelWidget.js");
+const { parseTelcelResponse, createWidget, loadCache, getCredentials } = require("../src/MiTelcelWidget.js");
 const { parseBaitResponse, createWidget: createBaitWidget, loadCache: loadBaitCache, fetchServiceKey: fetchBaitServiceKey, CONFIG: baitConfig } = require("../src/MiBaitWidget.js");
 const {
   fetchMovistarData,
@@ -478,6 +478,122 @@ assert.deepEqual(await runReset(1), ["TELCEL_PASS", "TELCEL_PHONE", "MOVISTAR_PI
 assert.deepEqual(await runReset(2), ["TELCEL_PASS", "TELCEL_PHONE", "BAIT_PHONE", "MOVISTAR_GUARD_KEY"]);
 assert.deepEqual(await runReset(3), ["MOVISTAR_GUARD_KEY"]);
 assert.equal((await runReset(-1)).length, 5);
+
+
+// 3. Test getCredentials in MiTelcelWidget
+const runGetCredentialsTest = async () => {
+  // Store original globals
+  const origKeychain = globalThis.Keychain;
+  const origConfig = globalThis.config;
+  const origAlert = globalThis.Alert;
+
+  try {
+    let alertTitle, alertMessage, alertFields, alertSecureFields, alertActions, alertCancelActions;
+    let alertActionResponse = 0;
+    let textFieldValues = [];
+
+    globalThis.Alert = class {
+      constructor() {
+        this.fields = [];
+        this.secureFields = [];
+        this.actions = [];
+      }
+      set title(t) { alertTitle = t; }
+      set message(m) { alertMessage = m; }
+      addTextField(placeholder, initialValue) { this.fields.push({placeholder, initialValue}); }
+      addSecureTextField(placeholder, initialValue) { this.secureFields.push({placeholder, initialValue}); }
+      addAction(a) { this.actions.push(a); }
+      addCancelAction(a) { this.actions.push(a); }
+      async presentAlert() { return alertActionResponse; }
+      textFieldValue(idx) { return textFieldValues[idx]; }
+    };
+
+    let keychainStore = new Map();
+    globalThis.Keychain = {
+      contains: (k) => keychainStore.has(k),
+      get: (k) => keychainStore.get(k),
+      set: (k, v) => keychainStore.set(k, v)
+    };
+
+    // Case 1: valid credentials in keychain, runsInWidget=true
+    globalThis.config = { runsInWidget: true };
+    keychainStore.set("TELCEL_PHONE", "5512345679");
+    keychainStore.set("TELCEL_PASS", "validpass");
+    let creds = await getCredentials();
+    assert.equal(creds.phone, "5512345679");
+    assert.equal(creds.password, "validpass");
+
+    // Case 2: valid credentials, runsInWidget=false (should skip alert)
+    globalThis.config = { runsInWidget: false };
+    creds = await getCredentials();
+    assert.equal(creds.phone, "5512345679");
+    assert.equal(creds.password, "validpass");
+
+    // Case 3: invalid credentials in keychain, runsInWidget=true (skip alert)
+    globalThis.config = { runsInWidget: true };
+    keychainStore.set("TELCEL_PHONE", "55123");
+    keychainStore.set("TELCEL_PASS", "");
+    creds = await getCredentials();
+    assert.equal(creds.phone, "55123");
+    assert.equal(creds.password, "");
+
+    // Case 4: invalid credentials, runsInWidget=false, cancel alert
+    globalThis.config = { runsInWidget: false };
+    alertActionResponse = 1; // 1 means Cancel usually
+    keychainStore.clear(); // Ensure we use empty config or fallback
+    creds = await getCredentials();
+    assert.equal(creds.phone, ""); // it falls back to CONFIG.phone which is ""
+    assert.equal(creds.password, "");
+
+    // Case 5: invalid credentials, runsInWidget=false, save valid inputs
+    globalThis.config = { runsInWidget: false };
+    alertActionResponse = 0; // 0 means Save usually
+    textFieldValues = ["+52 55 1234-5678", "mypass123"];
+    keychainStore.clear();
+    creds = await getCredentials();
+    assert.equal(creds.phone, "5512345678"); // stripped formatting
+    assert.equal(creds.password, "mypass123");
+    assert.equal(keychainStore.get("TELCEL_PHONE"), "5512345678");
+    assert.equal(keychainStore.get("TELCEL_PASS"), "mypass123");
+
+    // Case 6: valid inputs containing non-numeric, save valid
+    alertActionResponse = 0;
+    textFieldValues = ["55abc12345678x", "newpass"];
+    keychainStore.clear();
+    creds = await getCredentials();
+    assert.equal(creds.phone, "5512345678"); // strips abc and x
+    assert.equal(creds.password, "newpass");
+    assert.equal(keychainStore.get("TELCEL_PHONE"), "5512345678");
+    assert.equal(keychainStore.get("TELCEL_PASS"), "newpass");
+
+    // Case 7: invalid inputs (short phone), don't save to Keychain
+    alertActionResponse = 0;
+    textFieldValues = ["12345", "pass"];
+    keychainStore.clear();
+    creds = await getCredentials();
+    assert.equal(creds.phone, "12345");
+    assert.equal(creds.password, "pass");
+    assert.equal(keychainStore.has("TELCEL_PHONE"), false);
+
+    // Case 8: invalid inputs (empty pass), don't save to Keychain
+    alertActionResponse = 0;
+    textFieldValues = ["5512345678", ""];
+    keychainStore.clear();
+    creds = await getCredentials();
+    assert.equal(creds.phone, "5512345678");
+    assert.equal(creds.password, "");
+    assert.equal(keychainStore.has("TELCEL_PASS"), false);
+
+    console.log("✅ getCredentials tests passed!");
+
+  } finally {
+    globalThis.Keychain = origKeychain;
+    globalThis.config = origConfig;
+    globalThis.Alert = origAlert;
+  }
+};
+await runGetCredentialsTest();
+
 
 // 2. Test Swift parser with the same fixture, error rejection, phone normalization & footerText
 const swiftSource = readFileSync("MiTelcelWidget/TelcelNetworkService.swift", "utf8");
