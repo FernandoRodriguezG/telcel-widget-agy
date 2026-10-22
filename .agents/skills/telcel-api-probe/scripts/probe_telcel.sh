@@ -10,7 +10,21 @@ REPORT_FILE="$ARTIFACTS_DIR/probe_report.txt"
 mkdir -p "$ARTIFACTS_DIR"
 
 UA="Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1"
-MTL_BASIC="bXRwc2VydmljZXM6NyQ4N3JmRnN3ZSQyMV8="
+
+# Obtener token MTL_BASIC de forma dinámica
+HTML_CONTENT=$(curl -s "https://www.mitelcel.com/mitelcel/login")
+JS_PATH=$(echo "$HTML_CONTENT" | grep -o 'src="/assets/index-[^"]*\.js"' | sed 's/src="//;s/"//')
+if [ -z "$JS_PATH" ]; then
+    echo "❌ Error: No se pudo encontrar el archivo JS principal."
+    exit 1
+fi
+JS_CONTENT=$(curl -s "https://www.mitelcel.com$JS_PATH")
+MTL_BASIC=$(echo "$JS_CONTENT" | grep -o 'MTL_AUTHORIZATION_BASIC:"[^"]*"' | sed 's/MTL_AUTHORIZATION_BASIC:"//;s/"//')
+if [ -z "$MTL_BASIC" ]; then
+    echo "❌ Error: No se pudo extraer MTL_AUTHORIZATION_BASIC del JS."
+    exit 1
+fi
+
 SSO_TOKEN=""
 MTL_TOKEN=""
 B2F_TOKEN=""

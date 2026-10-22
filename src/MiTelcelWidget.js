@@ -95,6 +95,41 @@ async function requestTelcel(url, method, headers, body, parseJson = true) {
   return parseJson ? res.json() : res.text();
 }
 
+async function fetchDynamicMtlBasic() {
+  try {
+    // In Scriptable we need to use loadString explicitly to get text. We create a local req to do this:
+    let html = "";
+    if (typeof Request !== "undefined") {
+      const r = new Request("https://www.mitelcel.com/mitelcel/login");
+      r.method = "GET";
+      html = await r.loadString();
+    } else {
+      const res = await fetch("https://www.mitelcel.com/mitelcel/login", { method: "GET" });
+      html = await res.text();
+    }
+    const scriptMatch = html.match(/src="(\/assets\/index-[^"]+\.js)"/);
+    if (scriptMatch) {
+      const scriptUrl = "https://www.mitelcel.com" + scriptMatch[1];
+      let scriptText = "";
+      if (typeof Request !== "undefined") {
+        const r = new Request(scriptUrl);
+        r.method = "GET";
+        scriptText = await r.loadString();
+      } else {
+        const res = await fetch(scriptUrl, { method: "GET" });
+        scriptText = await res.text();
+      }
+      const basicMatch = scriptText.match(/MTL_AUTHORIZATION_BASIC\s*:\s*"([^"]+)"/);
+      if (basicMatch) {
+        return basicMatch[1];
+      }
+    }
+  } catch (error) {
+    console.warn("No se pudo obtener el token dinámico: " + error.message);
+  }
+  throw new Error("No se pudo obtener la configuración dinámica de autenticación");
+}
+
 /**
  * Autentica en Mi Telcel vía WebLogin SSO, intercambia el token B2F,
  * consulta el flujo Home (Wave B2F) y revoca el token SSO al finalizar.
@@ -107,7 +142,7 @@ async function fetchTelcelData(creds) {
     throw new Error("Configura un número a 10 dígitos y contraseña en Scriptable.");
   }
   const ua = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1";
-  const mtlBasic = "bXRwc2VydmljZXM6NyQ4N3JmRnN3ZSQyMV8=";
+  const mtlBasic = await fetchDynamicMtlBasic();
   const passClean = password.replace(/\s+/g, "");
   const pB64 = typeof Data !== "undefined"
     ? Data.fromString(passClean).toBase64String()
