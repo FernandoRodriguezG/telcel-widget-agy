@@ -8,6 +8,7 @@ globalThis.Size = class { constructor(w, h) { this.width = w; this.height = h; }
 globalThis.Rect = class { constructor(x, y, w, h) { this.x = x; this.y = y; this.width = w; this.height = h; } };
 globalThis.Point = class { constructor(x, y) { this.x = x; this.y = y; } };
 globalThis.Font = {
+  systemFont: (s) => ({ size: s, weight: "regular" }),
   boldSystemFont: (s) => ({ size: s, weight: "bold" }),
   semiboldSystemFont: (s) => ({ size: s, weight: "semibold" }),
   mediumSystemFont: (s) => ({ size: s, weight: "medium" }),
@@ -38,7 +39,7 @@ const makeStack = (texts, images) => ({
   centerAlignContent() {},
   setPadding() {},
   addSpacer() {},
-  addText(t) { texts.push(t); return {}; },
+  addText(t) { texts.push(t); return { centerAlignText() {} }; },
   addStack() { return makeStack(texts, images); },
   addImage(img) { images.push(img); return { centerAlignImage() {} }; }
 });
@@ -741,6 +742,15 @@ const runGetCredentialsTest = async () => {
     assert.equal(keychainStore.get("TELCEL_PHONE"), "5512345679");
     assert.equal(keychainStore.get("TELCEL_PASS"), "valid_pw");
 
+    // Case 10: Device offline, validator throws, prompts "Sin conexión a internet" and exits
+    alertActionResponses = [0, 0];
+    textFieldValuesList = [["5512345679", "some_pw"]];
+    keychainStore.clear();
+    const offlineValidator = async () => { throw new Error("The Internet connection appears to be offline."); };
+    creds = await getCredentials(offlineValidator);
+    assert.equal(alertTitle, "Sin conexión a internet");
+    assert.equal(keychainStore.has("TELCEL_PHONE"), false);
+
     console.log("✅ getCredentials tests passed!");
 
   } finally {
@@ -841,6 +851,15 @@ const testBaitCredentials = async () => {
     assert.equal(alertTitle, "Número incorrecto");
     assert.equal(creds.phone, "5599887766");
     assert.equal(savedKeychain["BAIT_PHONE"], "5599887766");
+
+    // Scenario 8: Device offline, validator throws, prompts "Sin conexión a internet" and exits
+    alertActionResponses = [0, 0];
+    textFieldValuesList = [["5599887766"]];
+    savedKeychain = {};
+    const offlineBaitValidator = async () => { throw new Error("The Internet connection appears to be offline."); };
+    creds = await getBaitCredentials(offlineBaitValidator);
+    assert.equal(alertTitle, "Sin conexión a internet");
+    assert.equal(savedKeychain["BAIT_PHONE"], undefined);
   } finally {
     globalThis.Keychain = origKeychain;
     globalThis.config = origConfig;
@@ -925,6 +944,16 @@ const testMovistarCredentials = async () => {
     // Scenario 6: getCredentials wrapper
     const creds = await getMovistarCredentials(mockMovistarValidator);
     assert.equal(creds.pId, "valid_pid_456");
+
+    // Scenario 7: Device offline, validator throws, prompts "Sin conexión a internet" and exits
+    alertActionResponses = [0, 0];
+    textFieldValuesList = [["valid_pid_456"]];
+    delete savedKeychain["MOVISTAR_PID"];
+    const offlineMovistarValidator = async () => { throw new Error("The Internet connection appears to be offline."); };
+    const offlineToken = await getSessionToken(false, offlineMovistarValidator);
+    assert.equal(alertTitle, "Sin conexión a internet");
+    assert.equal(offlineToken, "");
+    assert.equal(savedKeychain["MOVISTAR_PID"], undefined);
   } finally {
     globalThis.Keychain = origKeychain;
     globalThis.config = origConfig;
@@ -958,6 +987,9 @@ const testNetworkValidators = async () => {
     globalThis.fetch = async () => ({ ok: true, json: async () => ({ error: { description: "bad" } }) });
     assert.equal(await validateTelcelCredentials("5512345678", "wrong_pw"), false);
 
+    globalThis.fetch = async () => { throw new Error("Network offline"); };
+    await assert.rejects(() => validateTelcelCredentials("5512345678", "pw"), /Network offline/);
+
     // 2. validateBaitCredentials
     globalThis.fetch = async (url) => {
       if (url.includes("/get/consumption")) {
@@ -975,12 +1007,21 @@ const testNetworkValidators = async () => {
     };
     assert.equal(await validateBaitCredentials("5512345678"), false);
 
+    const origWarn = console.warn;
+    console.warn = () => {};
+    globalThis.fetch = async () => { throw new Error("Network offline"); };
+    await assert.rejects(() => validateBaitCredentials("5512345678"), /Network offline/);
+    console.warn = origWarn;
+
     // 3. validateMovistarCredentials
     globalThis.fetch = async () => ({ ok: true, json: async () => ({ content: "cipher:iv" }) });
     assert.equal(await validateMovistarCredentials("test_pid"), true);
 
-    globalThis.fetch = async () => ({ ok: false, status: 401 });
+    globalThis.fetch = async () => ({ ok: false, status: 401, json: async () => ({ response: "401" }) });
     assert.equal(await validateMovistarCredentials("test_pid"), false);
+
+    globalThis.fetch = async () => { throw new Error("Network offline"); };
+    await assert.rejects(() => validateMovistarCredentials("test_pid"), /Network offline/);
   } finally {
     globalThis.fetch = origFetch;
     if (origRequest !== undefined) globalThis.Request = origRequest;

@@ -46,8 +46,11 @@ async function validateMovistarCredentials(pId) {
       }
     );
     return Boolean(res?.content && typeof res.content === "string" && res.content.includes(":"));
-  } catch (_) {
-    return false;
+  } catch (err) {
+    if (String(err?.message || "").includes("401") || String(err?.message || "").includes("403")) {
+      return false;
+    }
+    throw err;
   }
 }
 
@@ -84,10 +87,22 @@ async function loginWithWebView(validator = validateMovistarCredentials) {
     }
   }
 
-  let isValid = capturedPid ? await validator(capturedPid) : false;
-  if (isValid) {
-    if (typeof Keychain !== "undefined") Keychain.set("MOVISTAR_PID", capturedPid);
-    return capturedPid;
+  let isValid = false;
+  if (capturedPid) {
+    try {
+      isValid = await validator(capturedPid);
+    } catch (_) {
+      const offlineAlert = new Alert();
+      offlineAlert.title = "Sin conexión a internet";
+      offlineAlert.message = "No fue posible verificar tu sesión de Mi Movistar. Revisa tu conexión a internet e inténtalo más tarde.";
+      offlineAlert.addAction("Aceptar");
+      await offlineAlert.presentAlert();
+      return "";
+    }
+    if (isValid) {
+      if (typeof Keychain !== "undefined") Keychain.set("MOVISTAR_PID", capturedPid);
+      return capturedPid;
+    }
   }
 
   let isError = Boolean(capturedPid && !isValid);
@@ -106,10 +121,19 @@ async function loginWithWebView(validator = validateMovistarCredentials) {
     }
     capturedPid = alert.textFieldValue(0).trim();
     if (capturedPid) {
-      isValid = await validator(capturedPid);
-      if (isValid) {
-        if (typeof Keychain !== "undefined") Keychain.set("MOVISTAR_PID", capturedPid);
-        return capturedPid;
+      try {
+        isValid = await validator(capturedPid);
+        if (isValid) {
+          if (typeof Keychain !== "undefined") Keychain.set("MOVISTAR_PID", capturedPid);
+          return capturedPid;
+        }
+      } catch (_) {
+        const offlineAlert = new Alert();
+        offlineAlert.title = "Sin conexión a internet";
+        offlineAlert.message = "No fue posible verificar tu sesión de Mi Movistar. Revisa tu conexión a internet e inténtalo más tarde.";
+        offlineAlert.addAction("Aceptar");
+        await offlineAlert.presentAlert();
+        return "";
       }
     }
     isError = true;

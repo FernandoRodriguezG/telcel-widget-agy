@@ -38,19 +38,15 @@ const MONTHS_ES = [
 ];
 
 async function validateBaitCredentials(phone) {
-  try {
-    const ordServiceKey = await fetchServiceKey();
-    const json = await requestBait(
-      `https://mibait.com/api/core/q/dn/${encodeURIComponent(phone)}/get/consumption`,
-      {
-        "Accept": "application/json",
-        "x-ord-service": ordServiceKey
-      }
-    );
-    return Boolean(json?.success && Array.isArray(json?.data));
-  } catch (_) {
-    return false;
-  }
+  const ordServiceKey = await fetchServiceKey();
+  const json = await requestBait(
+    `https://mibait.com/api/core/q/dn/${encodeURIComponent(phone)}/get/consumption`,
+    {
+      "Accept": "application/json",
+      "x-ord-service": ordServiceKey
+    }
+  );
+  return Boolean(json?.success && Array.isArray(json?.data));
 }
 
 async function getCredentials(validator = validateBaitCredentials) {
@@ -78,10 +74,20 @@ async function getCredentials(validator = validateBaitCredentials) {
 
       const enteredPhone = alert.textFieldValue(0).replace(/\D/g, "").slice(-10);
       if (enteredPhone.length === 10 && enteredPhone !== "5512345678") {
-        const valid = await validator(enteredPhone);
-        if (valid) {
-          phone = enteredPhone;
-          if (typeof Keychain !== "undefined") Keychain.set("BAIT_PHONE", phone);
+        try {
+          const valid = await validator(enteredPhone);
+          if (valid) {
+            phone = enteredPhone;
+            if (typeof Keychain !== "undefined") Keychain.set("BAIT_PHONE", phone);
+            break;
+          }
+        } catch (_) {
+          const offlineAlert = new Alert();
+          offlineAlert.title = "Sin conexión a internet";
+          offlineAlert.message = "No fue posible verificar tu número Bait. Revisa tu conexión a internet e inténtalo más tarde.";
+          offlineAlert.addAction("Aceptar");
+          await offlineAlert.presentAlert();
+          phone = "";
           break;
         }
       }
