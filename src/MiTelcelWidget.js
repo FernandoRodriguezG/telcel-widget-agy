@@ -308,10 +308,24 @@ function parseTelcelResponse(payload) {
     throw new Error(payload?.message || payload?.error || "Respuesta Home Flow sin bolsas de datos");
   }
 
-  const consumedMB = buckets.reduce((sum, b) => sum + b.consumedMB, 0);
-  const totalMB = buckets.reduce((sum, b) => sum + b.totalMB, 0);
-  const availableMB = buckets.reduce((sum, b) => sum + b.availableMB, 0);
-  const daysLeft = buckets.find(b => b.daysLeft !== null)?.daysLeft ?? 28;
+  let consumedMB = 0;
+  let totalMB = 0;
+  let availableMB = 0;
+  let daysLeft = null;
+
+  for (let i = 0; i < buckets.length; i++) {
+    const b = buckets[i];
+    consumedMB += b.consumedMB;
+    totalMB += b.totalMB;
+    availableMB += b.availableMB;
+    if (daysLeft === null && b.daysLeft !== null) {
+      daysLeft = b.daysLeft;
+    }
+  }
+
+  if (daysLeft === null) {
+    daysLeft = 28;
+  }
   const cutoffDate = byId["plan-details-row-template-col-2-0-0"]?.value
     || byId["plan-details-row-template-col-2-web-0-0"]?.value
     || "";
