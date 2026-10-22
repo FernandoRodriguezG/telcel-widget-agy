@@ -278,7 +278,7 @@ globalThis.FileManager = {
     documentsDirectory: () => "/tmp",
     joinPath: (a, b) => `${a}/${b}`,
     fileExists: () => true,
-    readString: () => ""
+    readString: () => { throw new Error("Simulated readString exception"); }
   })
 };
 assert.equal(loadCache(), null);
