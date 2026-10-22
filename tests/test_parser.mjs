@@ -750,7 +750,19 @@ class MockURLProtocol: URLProtocol {
     override func startLoading() {
         guard let handler = MockURLProtocol.requestHandler else { return }
         do {
-            let (response, data) = try handler(request)
+            var req = request
+            if req.httpBody == nil, let stream = req.httpBodyStream {
+                stream.open()
+                var data = Data()
+                var buf = [UInt8](repeating: 0, count: 1024)
+                while stream.hasBytesAvailable {
+                    let n = stream.read(&buf, maxLength: buf.count)
+                    if n > 0 { data.append(buf, count: n) } else { break }
+                }
+                stream.close()
+                req.httpBody = data
+            }
+            let (response, data) = try handler(req)
             client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
             client?.urlProtocol(self, didLoad: data)
             client?.urlProtocolDidFinishLoading(self)
@@ -798,8 +810,8 @@ extension TelcelNetworkService {
         MockURLProtocol.requestHandler = { request in
             requestCount += 1
             let bodyString = String(data: request.httpBody ?? Data(), encoding: .utf8)
-            // URLComponents percent encodes +, =, &, space, and %
-            assert(bodyString == "token=token%2B%3D%26%20weird%25chars&token_type=revoke")
+            // URLComponents percent encodes =, &, space, and % (preserves + in query)
+            assert(bodyString == "token=token+%3D%26%20weird%25chars&token_type=revoke")
             return (HTTPURLResponse(), Data())
         }
         await revokeSSOToken("token+=& weird%chars", session: session)
