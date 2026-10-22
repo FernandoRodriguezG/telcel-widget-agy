@@ -412,6 +412,26 @@ const movEpoch = parseMovistarResponse({
 assert.equal(movEpoch.daysLeft, 7);
 assert.equal(movEpoch.cutoffISO, "2026-10-28");
 
+// 1e. Test ResetearPassword: per-carrier, "Todos" (index 3) and Cancel (-1)
+const resetSource = readFileSync("src/ResetearPassword.js", "utf8");
+const AsyncFunction = (async () => {}).constructor;
+const runReset = async (choice) => {
+  const store = new Map(["TELCEL_PASS", "TELCEL_PHONE", "BAIT_PHONE", "MOVISTAR_PID", "MOVISTAR_GUARD_KEY"].map(k => [k, "x"]));
+  let alerts = 0;
+  const Alert = class {
+    addAction() {} addDestructiveAction() {} addCancelAction() {}
+    async presentAlert() { return alerts++ === 0 ? choice : 0; }
+  };
+  const Keychain = { contains: (k) => store.has(k), remove: (k) => store.delete(k) };
+  await new AsyncFunction("Alert", "Keychain", "Script", resetSource)(Alert, Keychain, { complete() {} });
+  return [...store.keys()];
+};
+assert.deepEqual(await runReset(0), ["BAIT_PHONE", "MOVISTAR_PID", "MOVISTAR_GUARD_KEY"]);
+assert.deepEqual(await runReset(1), ["TELCEL_PASS", "TELCEL_PHONE", "MOVISTAR_PID", "MOVISTAR_GUARD_KEY"]);
+assert.deepEqual(await runReset(2), ["TELCEL_PASS", "TELCEL_PHONE", "BAIT_PHONE", "MOVISTAR_GUARD_KEY"]);
+assert.deepEqual(await runReset(3), ["MOVISTAR_GUARD_KEY"]);
+assert.equal((await runReset(-1)).length, 5);
+
 // 2. Test Swift parser with the same fixture, error rejection, phone normalization & footerText
 const swiftSource = readFileSync("MiTelcelWidget/TelcelNetworkService.swift", "utf8");
 const swiftTest = `${swiftSource}

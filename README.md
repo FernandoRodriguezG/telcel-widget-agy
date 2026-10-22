@@ -64,15 +64,14 @@ Descarga la app gratuita **[Scriptable](https://apps.apple.com/app/scriptable/id
 9. Toca fuera del widget para guardar. ¡Listo! El widget se actualizará periódicamente.
 
 ### 6. ¿Credenciales incorrectas? Cómo restablecerlas (Resetear contraseña)
-Si ingresaste por error un número o contraseña equivocados, quedarán almacenados en el Keychain de iOS. Para borrarlos y poder ingresarlos de nuevo:
+Si ingresaste por error un número, contraseña o sesión equivocados, quedarán almacenados en el Keychain de iOS. Para borrarlos y poder ingresarlos de nuevo:
 1. Crea un nuevo script en Scriptable y nómbralo **`ResetearPassword`** (o **`resetear password`**).
-2. Pega el código de [`src/ResetearPassword.js`](src/ResetearPassword.js):
-   ```javascript
-   Keychain.remove("TELCEL_PASS");
-   Keychain.remove("TELCEL_PHONE");
-   ```
-3. Ejecútalo pulsando **Play (▶)**.
-4. Una vez restablecidas las credenciales, vuelve a abrir el script **`MiTelcel`** y pulsa **Play (▶)** para que te solicite de nuevo tu número y contraseña correctos.
+2. Pega el código de [`src/ResetearPassword.js`](src/ResetearPassword.js).
+3. Ejecútalo pulsando **Play (▶)** y elige el operador a restablecer (o **Todos**):
+   - **Mi Telcel:** borra `TELCEL_PHONE` y `TELCEL_PASS`.
+   - **Mi Bait:** borra `BAIT_PHONE`.
+   - **Mi Movistar:** borra el token de sesión `MOVISTAR_PID`.
+4. Vuelve a abrir el script del operador (**`MiTelcel`**, **`MiBait`** o **`MiMovistar`**) y pulsa **Play (▶)** para que te solicite de nuevo tus datos (en Movistar se abrirá otra vez el login en WebView).
 
 ---
 
@@ -130,7 +129,7 @@ Puedes probar las llamadas y verificar el formato devuelto por Mi Telcel usando 
 │   ├── MiTelcelWidget.js           # Widget autónomo Mi Telcel para Scriptable (iOS)
 │   ├── MiBaitWidget.js             # Widget autónomo Mi Bait para Scriptable (iOS)
 │   ├── MiMovistarWidget.js         # Widget autónomo Mi Movistar para Scriptable (iOS)
-│   └── ResetearPassword.js         # Script para limpiar credenciales de Telcel en Keychain
+│   └── ResetearPassword.js         # Script para limpiar credenciales de Telcel, Bait o Movistar en Keychain
 ├── android/
 │   ├── mitelcel_widget.mjs         # Prototipo Node.js para Termux / KWGT (Android)
 │   ├── shortcuts_mitelcel.sh       # Lanzador para Termux:Widget (~/.shortcuts)
