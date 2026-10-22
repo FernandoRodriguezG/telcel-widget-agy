@@ -286,17 +286,43 @@ try {
   }
 }
 
-// Test requestTelcel error handling in Node (fetch) environment
+// Test requestTelcel error handling and edge cases in Node (fetch) environment
 {
   const origFetch = globalThis.fetch;
   const origRequest = globalThis.Request;
-  globalThis.fetch = async () => ({ ok: false, status: 500 });
   globalThis.Request = undefined;
+
   try {
+    // 1. Test fetch error (parseJson = true)
+    globalThis.fetch = async () => ({ ok: false, status: 500 });
     await assert.rejects(
       () => requestTelcel("https://test.com", "GET", {}, null, true),
       /Error en la solicitud: código de estado 500\. Por favor, inténtalo más tarde\./
     );
+
+    // 2. Test fetch error (parseJson = false)
+    globalThis.fetch = async () => ({ ok: false, status: 404 });
+    await assert.rejects(
+      () => requestTelcel("https://test.com", "GET", {}, null, false),
+      /Error en la solicitud: código de estado 404\. Por favor, inténtalo más tarde\./
+    );
+
+    // 3. Test exception thrown by fetch (network error)
+    globalThis.fetch = async () => { throw new Error("Simulated network failure in fetch"); };
+    await assert.rejects(
+      () => requestTelcel("https://test.com", "GET", {}, null, true),
+      /Simulated network failure in fetch/
+    );
+
+    // 4. Test successful response (parseJson = true)
+    globalThis.fetch = async () => ({ ok: true, json: async () => ({ success: true }) });
+    let res = await requestTelcel("https://test.com", "GET", {}, null, true);
+    assert.deepEqual(res, { success: true });
+
+    // 5. Test successful response (parseJson = false)
+    globalThis.fetch = async () => ({ ok: true, text: async () => "rawtext" });
+    res = await requestTelcel("https://test.com", "GET", {}, null, false);
+    assert.equal(res, "rawtext");
   } finally {
     globalThis.fetch = origFetch;
     if (origRequest !== undefined) {
@@ -307,27 +333,59 @@ try {
   }
 }
 
-// Test requestTelcel error handling in Scriptable (Request) environment
+// Test requestTelcel error handling and edge cases in Scriptable (Request) environment
 {
   const origRequest = globalThis.Request;
+  let mockStatusCode = 200, mockString = "", mockData = {}, mockError = null;
   globalThis.Request = class {
     constructor(url) {
       this.url = url;
+      this.response = { statusCode: mockStatusCode };
     }
     async loadString() {
-      this.response = { statusCode: 404 };
-      return "";
+      if (mockError) throw mockError;
+      return mockString;
     }
     async load() {
-      this.response = { statusCode: 404 };
-      return "";
+      if (mockError) throw mockError;
+      return mockData;
     }
   };
+
   try {
+    // 1. Test loadString error (parseJson = true)
+    mockStatusCode = 404;
     await assert.rejects(
       () => requestTelcel("https://test.com", "GET", {}, null, true),
       /Error en la solicitud: código de estado 404\. Por favor, inténtalo más tarde\./
     );
+
+    // 2. Test load error (parseJson = false)
+    mockStatusCode = 500;
+    await assert.rejects(
+      () => requestTelcel("https://test.com", "GET", {}, null, false),
+      /Error en la solicitud: código de estado 500\. Por favor, inténtalo más tarde\./
+    );
+
+    // 3. Test exception thrown by Request (network error)
+    mockError = new Error("Simulated network failure in Request");
+    await assert.rejects(
+      () => requestTelcel("https://test.com", "GET", {}, null, true),
+      /Simulated network failure in Request/
+    );
+    mockError = null;
+
+    // 4. Test successful response (parseJson = true)
+    mockStatusCode = 200;
+    mockString = '{"success":true}';
+    let res = await requestTelcel("https://test.com", "GET", {}, null, true);
+    assert.deepEqual(res, { success: true });
+
+    // 5. Test successful response (parseJson = false) returning Data object in Scriptable
+    const mockDataObj = { bytes: [114, 97, 119] };
+    mockData = mockDataObj;
+    res = await requestTelcel("https://test.com", "GET", {}, null, false);
+    assert.equal(res, mockDataObj);
   } finally {
     if (origRequest !== undefined) {
       globalThis.Request = origRequest;
