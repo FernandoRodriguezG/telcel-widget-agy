@@ -520,6 +520,9 @@ function createWidget(data) {
   return w;
 }
 
+// Note: Drawing logic (drawArc, drawSemicircleGauge) is intentionally duplicated
+// across standalone widget scripts (MiTelcelWidget.js, MiBaitWidget.js, MiMovistarWidget.js)
+// so each file can be copied directly into the iOS Scriptable app without external module dependencies.
 function drawArc(ctx, cx, cy, r, startAngle, endAngle, thickness, color) {
   if (endAngle - startAngle <= 0.005) return;
   const path = new Path();
@@ -582,6 +585,9 @@ function drawSemicircleGauge(spentRatio, mainLabel, subLabel) {
   return ctx.getImage();
 }
 
+// Note: Cache logic (getCachePath, saveCache, loadCache) is intentionally duplicated
+// across standalone widget scripts (MiTelcelWidget.js, MiBaitWidget.js, MiMovistarWidget.js)
+// so each file can be copied directly into the iOS Scriptable app without external module dependencies.
 function getCachePath() {
   const fm = FileManager.local();
   return fm.joinPath(fm.documentsDirectory(), CONFIG.cacheFileName);
