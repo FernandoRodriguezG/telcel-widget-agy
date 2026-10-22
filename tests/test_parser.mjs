@@ -272,6 +272,51 @@ globalThis.FileManager = {
 };
 assert.equal(loadCache(), null);
 
+// Mock FileManager.local() to have readString throw an exception
+globalThis.FileManager = {
+  local: () => ({
+    documentsDirectory: () => "/tmp",
+    joinPath: (a, b) => `${a}/${b}`,
+    fileExists: () => true,
+    readString: () => { throw new Error("Simulated readString exception"); }
+  })
+};
+assert.equal(loadCache(), null);
+
+// Mock FileManager.local() to return empty string (JSON.parse will fail)
+globalThis.FileManager = {
+  local: () => ({
+    documentsDirectory: () => "/tmp",
+    joinPath: (a, b) => `${a}/${b}`,
+    fileExists: () => true,
+    readString: () => ""
+  })
+};
+assert.equal(loadCache(), null);
+
+// Mock FileManager.local() to return "null" (parsing succeeds but setting .fromCache throws TypeError)
+globalThis.FileManager = {
+  local: () => ({
+    documentsDirectory: () => "/tmp",
+    joinPath: (a, b) => `${a}/${b}`,
+    fileExists: () => true,
+    readString: () => "null"
+  })
+};
+assert.equal(loadCache(), null);
+
+// Mock FileManager.local() to return a primitive like "123" (valid JSON, won't throw when setting property but won't behave exactly like an object)
+globalThis.FileManager = {
+  local: () => ({
+    documentsDirectory: () => "/tmp",
+    joinPath: (a, b) => `${a}/${b}`,
+    fileExists: () => true,
+    readString: () => "123"
+  })
+};
+// 123 in JS, setting a property on a number returns the number, so it resolves to 123.
+assert.equal(loadCache(), 123);
+
 // Restore FileManager mock
 globalThis.FileManager = originalFileManager;
 
