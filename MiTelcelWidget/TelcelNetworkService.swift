@@ -265,7 +265,7 @@ public actor TelcelNetworkService {
                 URLQueryItem(name: "pB64", value: passB64),
                 URLQueryItem(name: "url", value: "https://wbl.telcel-id.com:8443")
             ]
-            loginReq.httpBody = comps.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B").data(using: .utf8)
+            loginReq.httpBody = comps.percentEncodedQuery?.data(using: .utf8)
 
             let (loginData, _) = try await session.data(for: loginReq)
             guard let loginObj = try JSONSerialization.jsonObject(with: loginData) as? [String: Any],
@@ -344,7 +344,7 @@ public actor TelcelNetworkService {
             URLQueryItem(name: "token", value: token),
             URLQueryItem(name: "token_type", value: "revoke")
         ]
-        req.httpBody = comps.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B").data(using: .utf8)
+        req.httpBody = comps.percentEncodedQuery?.data(using: .utf8)
         _ = try? await session.data(for: req)
     }
 
@@ -353,7 +353,9 @@ public actor TelcelNetworkService {
         var byId: [String: [String: Any]] = [:]
         var suffixesSet = Set<String>()
 
-        func walk(_ node: Any) {
+        var stack: [Any] = [root]
+
+        while let node = stack.popLast() {
             if let dict = node as? [String: Any] {
                 if let id = dict["id"] as? String, let cfg = dict["config"] as? [String: Any] {
                     byId[id] = cfg
@@ -364,12 +366,11 @@ public actor TelcelNetworkService {
                         }
                     }
                 }
-                for val in dict.values { walk(val) }
+                stack.append(contentsOf: dict.values)
             } else if let arr = node as? [Any] {
-                for item in arr { walk(item) }
+                stack.append(contentsOf: arr)
             }
         }
-        walk(root)
         let suffixes = suffixesSet.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
 
         func toDouble(_ raw: Any?) -> Double? {

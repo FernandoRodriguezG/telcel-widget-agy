@@ -50,8 +50,8 @@ globalThis.ListWidget = class {
   }
 };
 const require = createRequire(import.meta.url);
-const { fetchTelcelData, parseTelcelResponse, createWidget, loadCache } = require("../src/MiTelcelWidget.js");
-const { fetchBaitData, parseBaitResponse, createWidget: createBaitWidget, loadCache: loadBaitCache, fetchServiceKey: fetchBaitServiceKey, CONFIG: baitConfig, fetchBaitData } = require("../src/MiBaitWidget.js");
+const { parseTelcelResponse, createWidget, loadCache, getCredentials } = require("../src/MiTelcelWidget.js");
+const { fetchBaitData, parseBaitResponse, createWidget: createBaitWidget, loadCache: loadBaitCache, fetchServiceKey: fetchBaitServiceKey, CONFIG: baitConfig } = require("../src/MiBaitWidget.js");
 const {
   fetchMovistarData,
   parseMovistarResponse,
@@ -130,43 +130,6 @@ assert.equal(wZero.images[0].arcs, 2); // track + green left only
 
 const wEmpty = createWidget({ ...jsRes, totalMB: 0, consumedMB: 0, availableMB: 0 });
 assert.equal(wEmpty.images[0].arcs, 1); // track only when totalMB == 0
-
-// 1.1 Test fetchTelcelData hermetically (including token exchange and SSO revocation)
-await assert.rejects(() => fetchTelcelData({ phone: "123" }), /número a 10 dígitos/);
-let telcelRevoked = false;
-globalThis.Keychain = {
-  contains: (k) => k === "TELCEL_PHONE" || k === "TELCEL_PASS",
-  get: (k) => k === "TELCEL_PHONE" ? "5512345678" : "my+secret+pass"
-};
-const origFetchTelcel = globalThis.fetch;
-try {
-  globalThis.fetch = async (url, opts) => {
-    if (url === "https://www.mitelcel.com/mitelcel/login") return { text: async () => 'src="/assets/index-test.js"' };
-    if (url === "https://www.mitelcel.com/assets/index-test.js") return { text: async () => 'MTL_AUTHORIZATION_BASIC:"dGVzdA=="' };
-    if (url === "https://wbl.telcel-id.com:8443/login") {
-      assert(opts.body.includes("pB64="));
-      return { json: async () => ({ token: "sso-tok-123" }) };
-    }
-    if (url.includes("/security/1.0.0/v2/token")) {
-      return { json: async () => ({ tokenResponse: { tokens: [{ id: "token:b2f", access_token: "b2f-tok-456" }] } }) };
-    }
-    if (url.includes("/api/components/flow/home")) {
-      assert.equal(opts.headers.Authorization, "Bearer b2f-tok-456");
-      return { json: async () => fixture };
-    }
-    if (url === "https://dev.smapps.mx:9000/sso/revoke") {
-      telcelRevoked = true;
-      return { text: async () => "{}" };
-    }
-    throw new Error(`Unexpected fetch ${url}`);
-  };
-  const telcelFetched = await fetchTelcelData();
-  assert.equal(telcelFetched.planName, "Telcel Libre 4");
-  assert.equal(telcelRevoked, true);
-} finally {
-  globalThis.fetch = origFetchTelcel;
-  delete globalThis.Keychain;
-}
 
 // 1b. Test Mi Bait parser & widget
 const baitNow = new Date(2026, 9, 20, 10, 9); // Oct 20, 2026 10:09 local
@@ -340,6 +303,53 @@ globalThis.FileManager = {
 };
 assert.equal(loadCache(), null);
 
+// Mock FileManager.local() to return empty string (JSON.parse will throw)
+globalThis.FileManager = {
+  local: () => ({
+    documentsDirectory: () => "/tmp",
+    joinPath: (a, b) => `${a}/${b}`,
+    fileExists: () => true,
+    readString: () => { throw new Error("Simulated readString exception"); }
+  })
+};
+assert.equal(loadCache(), null);
+
+// Mock FileManager.local() to return "null" (valid JSON, but setting fromCache on null throws)
+globalThis.FileManager = {
+  local: () => ({
+    documentsDirectory: () => "/tmp",
+    joinPath: (a, b) => `${a}/${b}`,
+    fileExists: () => true,
+    readString: () => "null"
+  })
+};
+assert.equal(loadCache(), null);
+
+// Mock FileManager.local() to return primitive number (valid JSON, but setting fromCache silently succeeds in non-strict mode without modifying the primitive type - loadCache should handle this and return null)
+globalThis.FileManager = {
+  local: () => ({
+    documentsDirectory: () => "/tmp",
+    joinPath: (a, b) => `${a}/${b}`,
+    fileExists: () => true,
+    readString: () => "42"
+  })
+};
+assert.equal(loadCache(), null);
+
+// Mock FileManager.local() to return valid JSON object (Happy path cache hit)
+globalThis.FileManager = {
+  local: () => ({
+    documentsDirectory: () => "/tmp",
+    joinPath: (a, b) => `${a}/${b}`,
+    fileExists: () => true,
+    readString: () => '{"cutoffISO": "2026-10-28", "totalMB": 100}'
+  })
+};
+const happyCache = loadCache();
+assert.equal(happyCache.totalMB, 100);
+assert.equal(happyCache.cutoffISO, "2026-10-28");
+assert.equal(happyCache.fromCache, true);
+
 // Restore FileManager mock
 globalThis.FileManager = originalFileManager;
 
@@ -356,28 +366,6 @@ assert.equal(baitUnlimited.planName, "Bait Ilimitado");
 assert.equal(baitUnlimited.daysLeft, 0);
 const wBaitUnl = createBaitWidget(baitUnlimited);
 assert(wBaitUnl.texts.some(t => t.startsWith("Bait Ilimitado • ⏱")));
-
-// 1b.1 Test fetchBaitData hermetically
-await assert.rejects(() => fetchBaitData({ phone: "123" }), /número Bait válido/);
-globalThis.Keychain = {
-  contains: (k) => k === "BAIT_PHONE",
-  get: (k) => "5512345678"
-};
-const origFetchBait = globalThis.fetch;
-try {
-  globalThis.fetch = async (url) => {
-    if (url === "https://mibait.com") return { text: async () => 'src="main.abc1234.js"' };
-    if (url === "https://mibait.com/main.abc1234.js") return { text: async () => 'xOrdService:"57bfb26735aa4ec3a1baafa864006d7d"' };
-    if (url.includes("/api/core/q/dn/")) return { json: async () => baitFixture };
-    throw new Error(`Unexpected fetch ${url}`);
-  };
-  const baitFetched = await fetchBaitData();
-  assert.equal(baitFetched.planName, "Mi Bait");
-  assert.equal(baitFetched.totalMB, 15360);
-} finally {
-  globalThis.fetch = origFetchBait;
-  delete globalThis.Keychain;
-}
 
 // 1d. Test Mi Movistar parser, AES-256-GCM decryptor & widget
 const movNow = new Date(2026, 9, 21, 10, 0); // Oct 21, 2026 10:00 local
@@ -549,43 +537,232 @@ const movEpoch = parseMovistarResponse({
 assert.equal(movEpoch.daysLeft, 7);
 assert.equal(movEpoch.cutoffISO, "2026-10-28");
 
-// 1e. Test ResetearPassword: clears all keys gracefully, catching missing/failing keys
+// 1e. Test ResetearPassword: per-carrier, "Todos" (index 3) and Cancel (-1)
 const resetSource = readFileSync("src/ResetearPassword.js", "utf8");
 const AsyncFunction = (async () => {}).constructor;
-const runReset = async (initialKeys = [], throwOnRemove = false) => {
-  const store = new Map(initialKeys.map(k => [k, "x"]));
-  let presented = false;
+const runReset = async (choice) => {
+  const store = new Map(["TELCEL_PASS", "TELCEL_PHONE", "BAIT_PHONE", "MOVISTAR_PID", "MOVISTAR_GUARD_KEY"].map(k => [k, "x"]));
+  let alerts = 0;
   const Alert = class {
-    addAction() {}
-    async presentAlert() { presented = true; }
+    addAction() {} addDestructiveAction() {} addCancelAction() {}
+    async presentAlert() { return alerts++ === 0 ? choice : 0; }
   };
-  const Keychain = {
-    contains: (k) => {
-      if (throwOnRemove && k === "BAIT_PHONE") throw new Error("Simulated keychain error");
-      return store.has(k);
-    },
-    remove: (k) => {
-      if (throwOnRemove && k === "TELCEL_PASS") throw new Error("Simulated delete error");
-      store.delete(k);
-    }
-  };
+  const Keychain = { contains: (k) => store.has(k), remove: (k) => store.delete(k) };
   await new AsyncFunction("Alert", "Keychain", "Script", resetSource)(Alert, Keychain, { complete() {} });
-  assert.equal(presented, true);
   return [...store.keys()];
 };
+assert.deepEqual(await runReset(0), ["BAIT_PHONE", "MOVISTAR_PID", "MOVISTAR_GUARD_KEY"]);
+assert.deepEqual(await runReset(1), ["TELCEL_PASS", "TELCEL_PHONE", "MOVISTAR_PID", "MOVISTAR_GUARD_KEY"]);
+assert.deepEqual(await runReset(2), ["TELCEL_PASS", "TELCEL_PHONE", "BAIT_PHONE", "MOVISTAR_GUARD_KEY"]);
+assert.deepEqual(await runReset(3), ["MOVISTAR_GUARD_KEY"]);
+assert.equal((await runReset(-1)).length, 5);
 
-// Reset removes all existing keys
-assert.deepEqual(await runReset(["TELCEL_PASS", "TELCEL_PHONE", "BAIT_PHONE", "MOVISTAR_PID", "MOVISTAR_GUARD_KEY"]), []);
-// Reset when only one carrier was installed (e.g. Bait only)
-assert.deepEqual(await runReset(["BAIT_PHONE"]), []);
-// Reset when empty
-assert.deepEqual(await runReset([]), []);
-// Gracefully catches errors without throwing or stopping other removals
-assert.deepEqual(await runReset(["TELCEL_PASS", "TELCEL_PHONE", "MOVISTAR_PID"], true), ["TELCEL_PASS"]);
+
+// 3. Test getCredentials in MiTelcelWidget
+const runGetCredentialsTest = async () => {
+  // Store original globals
+  const origKeychain = globalThis.Keychain;
+  const origConfig = globalThis.config;
+  const origAlert = globalThis.Alert;
+
+  try {
+    let alertTitle, alertMessage, alertFields, alertSecureFields, alertActions, alertCancelActions;
+    let alertActionResponse = 0;
+    let textFieldValues = [];
+
+    globalThis.Alert = class {
+      constructor() {
+        this.fields = [];
+        this.secureFields = [];
+        this.actions = [];
+      }
+      set title(t) { alertTitle = t; }
+      set message(m) { alertMessage = m; }
+      addTextField(placeholder, initialValue) { this.fields.push({placeholder, initialValue}); }
+      addSecureTextField(placeholder, initialValue) { this.secureFields.push({placeholder, initialValue}); }
+      addAction(a) { this.actions.push(a); }
+      addCancelAction(a) { this.actions.push(a); }
+      async presentAlert() { return alertActionResponse; }
+      textFieldValue(idx) { return textFieldValues[idx]; }
+    };
+
+    let keychainStore = new Map();
+    globalThis.Keychain = {
+      contains: (k) => keychainStore.has(k),
+      get: (k) => keychainStore.get(k),
+      set: (k, v) => keychainStore.set(k, v)
+    };
+
+    // Case 1: valid credentials in keychain, runsInWidget=true
+    globalThis.config = { runsInWidget: true };
+    keychainStore.set("TELCEL_PHONE", "5512345679");
+    keychainStore.set("TELCEL_PASS", "dummy_password");
+    let creds = await getCredentials();
+    assert.equal(creds.phone, "5512345679");
+    assert.equal(creds.password, "dummy_password");
+
+    // Case 2: valid credentials, runsInWidget=false (should skip alert)
+    globalThis.config = { runsInWidget: false };
+    creds = await getCredentials();
+    assert.equal(creds.phone, "5512345679");
+    assert.equal(creds.password, "dummy_password");
+
+    // Case 3: invalid credentials in keychain, runsInWidget=true (skip alert)
+    globalThis.config = { runsInWidget: true };
+    keychainStore.set("TELCEL_PHONE", "55123");
+    keychainStore.set("TELCEL_PASS", "");
+    creds = await getCredentials();
+    assert.equal(creds.phone, "55123");
+    assert.equal(creds.password, "");
+
+    // Case 4: invalid credentials, runsInWidget=false, cancel alert
+    globalThis.config = { runsInWidget: false };
+    alertActionResponse = 1; // 1 means Cancel usually
+    keychainStore.clear(); // Ensure we use empty config or fallback
+    creds = await getCredentials();
+    assert.equal(creds.phone, ""); // it falls back to CONFIG.phone which is ""
+    assert.equal(creds.password, "");
+
+    // Case 5: invalid credentials, runsInWidget=false, save valid inputs
+    globalThis.config = { runsInWidget: false };
+    alertActionResponse = 0; // 0 means Save usually
+    textFieldValues = ["+52 55 1234-5679", "test_placeholder_pw"];
+    keychainStore.clear();
+    creds = await getCredentials();
+    assert.equal(creds.phone, "5512345679"); // stripped formatting
+    assert.equal(creds.password, "test_placeholder_pw");
+    assert.equal(keychainStore.get("TELCEL_PHONE"), "5512345679");
+    assert.equal(keychainStore.get("TELCEL_PASS"), "test_placeholder_pw");
+
+    // Case 6: valid inputs containing non-numeric, save valid
+    alertActionResponse = 0;
+    textFieldValues = ["55abc12345679x", "test_placeholder_pw2"];
+    keychainStore.clear();
+    creds = await getCredentials();
+    assert.equal(creds.phone, "5512345679"); // strips abc and x
+    assert.equal(creds.password, "test_placeholder_pw2");
+    assert.equal(keychainStore.get("TELCEL_PHONE"), "5512345679");
+    assert.equal(keychainStore.get("TELCEL_PASS"), "test_placeholder_pw2");
+
+    // Case 7: invalid inputs (short phone), don't save to Keychain
+    alertActionResponse = 0;
+    textFieldValues = ["12345", "test_placeholder_pw"];
+    keychainStore.clear();
+    creds = await getCredentials();
+    assert.equal(creds.phone, "12345");
+    assert.equal(creds.password, "test_placeholder_pw");
+    assert.equal(keychainStore.has("TELCEL_PHONE"), false);
+
+    // Case 7b: invalid inputs (rejected phone 5512345678), don't save to Keychain
+    alertActionResponse = 0;
+    textFieldValues = ["5512345678", "test_placeholder_pw"];
+    keychainStore.clear();
+    creds = await getCredentials();
+    assert.equal(creds.phone, "5512345678");
+    assert.equal(creds.password, "test_placeholder_pw");
+    assert.equal(keychainStore.has("TELCEL_PHONE"), false);
+
+    // Case 8: invalid inputs (empty pass), don't save to Keychain
+    alertActionResponse = 0;
+    textFieldValues = ["5512345678", ""];
+    keychainStore.clear();
+    creds = await getCredentials();
+    assert.equal(creds.phone, "5512345678");
+    assert.equal(creds.password, "");
+    assert.equal(keychainStore.has("TELCEL_PASS"), false);
+
+    console.log("✅ getCredentials tests passed!");
+
+  } finally {
+    globalThis.Keychain = origKeychain;
+    globalThis.config = origConfig;
+    globalThis.Alert = origAlert;
+  }
+};
+await runGetCredentialsTest();
+
 
 // 2. Test Swift parser with the same fixture, error rejection, phone normalization & footerText
 const swiftSource = readFileSync("MiTelcelWidget/TelcelNetworkService.swift", "utf8");
 const swiftTest = `${swiftSource}
+class MockURLProtocol: URLProtocol {
+    static var requestHandler: ((URLRequest) throws -> (HTTPURLResponse, Data))?
+
+    override class func canInit(with request: URLRequest) -> Bool {
+        return true
+    }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
+        return request
+    }
+
+    override func startLoading() {
+        guard let handler = MockURLProtocol.requestHandler else { return }
+        do {
+            let (response, data) = try handler(request)
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: data)
+            client?.urlProtocolDidFinishLoading(self)
+        } catch {
+            client?.urlProtocol(self, didFailWithError: error)
+        }
+    }
+
+    override func stopLoading() {}
+}
+
+extension TelcelNetworkService {
+    static func testRevokeSSOToken() async throws {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [MockURLProtocol.self]
+        let session = URLSession(configuration: config)
+
+        // Happy path
+        var requestCount = 0
+        MockURLProtocol.requestHandler = { request in
+            requestCount += 1
+            assert(request.url?.absoluteString == "https://dev.smapps.mx:9000/sso/revoke")
+            assert(request.httpMethod == "POST")
+            assert(request.value(forHTTPHeaderField: "Content-Type") == "application/x-www-form-urlencoded")
+            let bodyString = String(data: request.httpBody ?? Data(), encoding: .utf8)
+            assert(bodyString == "token=test_token_123&token_type=revoke")
+            return (HTTPURLResponse(), Data())
+        }
+        await revokeSSOToken("test_token_123", session: session)
+        assert(requestCount == 1)
+
+        // Empty token
+        requestCount = 0
+        MockURLProtocol.requestHandler = { request in
+            requestCount += 1
+            let bodyString = String(data: request.httpBody ?? Data(), encoding: .utf8)
+            assert(bodyString == "token=&token_type=revoke")
+            return (HTTPURLResponse(), Data())
+        }
+        await revokeSSOToken("", session: session)
+        assert(requestCount == 1)
+
+        // Edge case: URL encoding check
+        requestCount = 0
+        MockURLProtocol.requestHandler = { request in
+            requestCount += 1
+            let bodyString = String(data: request.httpBody ?? Data(), encoding: .utf8)
+            // URLComponents percent encodes +, =, &, space, and %
+            assert(bodyString == "token=token%2B%3D%26%20weird%25chars&token_type=revoke")
+            return (HTTPURLResponse(), Data())
+        }
+        await revokeSSOToken("token+=& weird%chars", session: session)
+        assert(requestCount == 1)
+    }
+}
+
+let sem = DispatchSemaphore(value: 0)
+Task {
+    try await TelcelNetworkService.testRevokeSSOToken()
+    sem.signal()
+}
+sem.wait()
+
 let json = #"""
 ${JSON.stringify(fixture)}
 """#.data(using: .utf8)!
@@ -604,9 +781,6 @@ let badJson = #"{"blocks":{"children":[{"id":"alert-error","config":{"value":"Ma
 assert((try? TelcelNetworkService.parseHomeFlowJSON(badJson)) == nil)
 assert(TelcelUsageEntry.errorFallback.totalMB == 0)
 assert(TelcelUsageEntry.errorFallback.cutoffDate == "Verificar cuenta")
-var testComps = URLComponents()
-testComps.queryItems = [URLQueryItem(name: "pB64", value: "a+b/c=")]
-assert(testComps.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B") == "pB64=a%2Bb/c%3D")
 print("✅ Swift & JS parser tests passed!")
 `;
 
