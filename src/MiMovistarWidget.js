@@ -546,7 +546,7 @@ function createWidget(data) {
   const spentLabel = isUnlimitedPlan ? `● Datos ${spentShort}` : `● ${spentShort} (${percentUsed}%)`;
   renderStats(w, spentLabel, `● ${dailyAllowance}`);
   w.addSpacer(3);
-  renderFooter(w, data.planName || "Mi Movistar", data.updatedAt, data.fromCache);
+  renderFooter(w, data.promo ? "Plan+Bono" : (data.planName || "Mi Movistar"), data.updatedAt, data.fromCache);
 
   return w;
 }
