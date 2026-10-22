@@ -51,7 +51,7 @@ globalThis.ListWidget = class {
 };
 const require = createRequire(import.meta.url);
 const { parseTelcelResponse, createWidget, loadCache } = require("../src/MiTelcelWidget.js");
-const { parseBaitResponse, createWidget: createBaitWidget, loadCache: loadBaitCache, fetchServiceKey: fetchBaitServiceKey, CONFIG: baitConfig } = require("../src/MiBaitWidget.js");
+const { parseBaitResponse, createWidget: createBaitWidget, loadCache: loadBaitCache, fetchServiceKey: fetchBaitServiceKey, CONFIG: baitConfig, fetchBaitData } = require("../src/MiBaitWidget.js");
 const {
   fetchMovistarData,
   parseMovistarResponse,
@@ -203,6 +203,37 @@ assert.equal(cachedLater.daysLeft, 4);
 const cachedExpired = loadBaitCache(new Date(2026, 10, 5, 8, 0)); // Past Nov 1 -> clamped to 0
 assert.equal(cachedExpired.fromCache, true);
 assert.equal(cachedExpired.daysLeft, 0);
+
+// Test fetchBaitData network error propagation via Request mock
+const originalRequest = globalThis.Request;
+globalThis.Request = class {
+  constructor(url) {
+    this.url = url;
+  }
+  async loadJSON() {
+    throw new Error("Simulated network error in Request.loadJSON");
+  }
+  async loadString() {
+    // Return dummy JS with key for fetchServiceKey to avoid error there
+    if (this.url.includes(".js")) return 'xOrdService:"' + baitConfig.ordServiceKey + '"';
+    return "<html><body><script src=\"main.123.js\"></script></body></html>";
+  }
+};
+
+const originalConsoleWarnForRequest = console.warn;
+try {
+  console.warn = () => {}; // Suppress warning about dynamic key fetch if it happens
+  await assert.rejects(
+    async () => {
+      await fetchBaitData({ phone: "5512345678" });
+    },
+    /Simulated network error in Request.loadJSON/,
+    "fetchBaitData should propagate the network error from loadJSON"
+  );
+} finally {
+  globalThis.Request = originalRequest;
+  console.warn = originalConsoleWarnForRequest;
+}
 
 // Test Mi Bait dynamic service key fetch fallback
 const originalFetch = globalThis.fetch;
