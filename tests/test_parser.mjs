@@ -50,7 +50,7 @@ globalThis.ListWidget = class {
   }
 };
 const require = createRequire(import.meta.url);
-const { parseTelcelResponse, createWidget, loadCache } = require("../src/MiTelcelWidget.js");
+const { parseTelcelResponse, createWidget, loadCache, getCredentials } = require("../src/MiTelcelWidget.js");
 const { parseBaitResponse, createWidget: createBaitWidget, loadCache: loadBaitCache, fetchServiceKey: fetchBaitServiceKey, CONFIG: baitConfig } = require("../src/MiBaitWidget.js");
 const {
   fetchMovistarData,
@@ -272,7 +272,7 @@ globalThis.FileManager = {
 };
 assert.equal(loadCache(), null);
 
-// Mock FileManager.local() to have readString throw an exception
+// Mock FileManager.local() to return empty string (JSON.parse will throw)
 globalThis.FileManager = {
   local: () => ({
     documentsDirectory: () => "/tmp",
@@ -283,18 +283,7 @@ globalThis.FileManager = {
 };
 assert.equal(loadCache(), null);
 
-// Mock FileManager.local() to return empty string (JSON.parse will fail)
-globalThis.FileManager = {
-  local: () => ({
-    documentsDirectory: () => "/tmp",
-    joinPath: (a, b) => `${a}/${b}`,
-    fileExists: () => true,
-    readString: () => ""
-  })
-};
-assert.equal(loadCache(), null);
-
-// Mock FileManager.local() to return "null" (parsing succeeds but setting .fromCache throws TypeError)
+// Mock FileManager.local() to return "null" (valid JSON, but setting fromCache on null throws)
 globalThis.FileManager = {
   local: () => ({
     documentsDirectory: () => "/tmp",
@@ -305,17 +294,30 @@ globalThis.FileManager = {
 };
 assert.equal(loadCache(), null);
 
-// Mock FileManager.local() to return a primitive like "123" (valid JSON, won't throw when setting property but won't behave exactly like an object)
+// Mock FileManager.local() to return primitive number (valid JSON, but setting fromCache silently succeeds in non-strict mode without modifying the primitive type - loadCache should handle this and return null)
 globalThis.FileManager = {
   local: () => ({
     documentsDirectory: () => "/tmp",
     joinPath: (a, b) => `${a}/${b}`,
     fileExists: () => true,
-    readString: () => "123"
+    readString: () => "42"
   })
 };
-// 123 in JS, setting a property on a number returns the number, so it resolves to 123.
-assert.equal(loadCache(), 123);
+assert.equal(loadCache(), null);
+
+// Mock FileManager.local() to return valid JSON object (Happy path cache hit)
+globalThis.FileManager = {
+  local: () => ({
+    documentsDirectory: () => "/tmp",
+    joinPath: (a, b) => `${a}/${b}`,
+    fileExists: () => true,
+    readString: () => '{"cutoffISO": "2026-10-28", "totalMB": 100}'
+  })
+};
+const happyCache = loadCache();
+assert.equal(happyCache.totalMB, 100);
+assert.equal(happyCache.cutoffISO, "2026-10-28");
+assert.equal(happyCache.fromCache, true);
 
 // Restore FileManager mock
 globalThis.FileManager = originalFileManager;
@@ -524,9 +526,212 @@ assert.deepEqual(await runReset(2), ["TELCEL_PASS", "TELCEL_PHONE", "BAIT_PHONE"
 assert.deepEqual(await runReset(3), ["MOVISTAR_GUARD_KEY"]);
 assert.equal((await runReset(-1)).length, 5);
 
+
+// 3. Test getCredentials in MiTelcelWidget
+const runGetCredentialsTest = async () => {
+  // Store original globals
+  const origKeychain = globalThis.Keychain;
+  const origConfig = globalThis.config;
+  const origAlert = globalThis.Alert;
+
+  try {
+    let alertTitle, alertMessage, alertFields, alertSecureFields, alertActions, alertCancelActions;
+    let alertActionResponse = 0;
+    let textFieldValues = [];
+
+    globalThis.Alert = class {
+      constructor() {
+        this.fields = [];
+        this.secureFields = [];
+        this.actions = [];
+      }
+      set title(t) { alertTitle = t; }
+      set message(m) { alertMessage = m; }
+      addTextField(placeholder, initialValue) { this.fields.push({placeholder, initialValue}); }
+      addSecureTextField(placeholder, initialValue) { this.secureFields.push({placeholder, initialValue}); }
+      addAction(a) { this.actions.push(a); }
+      addCancelAction(a) { this.actions.push(a); }
+      async presentAlert() { return alertActionResponse; }
+      textFieldValue(idx) { return textFieldValues[idx]; }
+    };
+
+    let keychainStore = new Map();
+    globalThis.Keychain = {
+      contains: (k) => keychainStore.has(k),
+      get: (k) => keychainStore.get(k),
+      set: (k, v) => keychainStore.set(k, v)
+    };
+
+    // Case 1: valid credentials in keychain, runsInWidget=true
+    globalThis.config = { runsInWidget: true };
+    keychainStore.set("TELCEL_PHONE", "5512345679");
+    keychainStore.set("TELCEL_PASS", "dummy_password");
+    let creds = await getCredentials();
+    assert.equal(creds.phone, "5512345679");
+    assert.equal(creds.password, "dummy_password");
+
+    // Case 2: valid credentials, runsInWidget=false (should skip alert)
+    globalThis.config = { runsInWidget: false };
+    creds = await getCredentials();
+    assert.equal(creds.phone, "5512345679");
+    assert.equal(creds.password, "dummy_password");
+
+    // Case 3: invalid credentials in keychain, runsInWidget=true (skip alert)
+    globalThis.config = { runsInWidget: true };
+    keychainStore.set("TELCEL_PHONE", "55123");
+    keychainStore.set("TELCEL_PASS", "");
+    creds = await getCredentials();
+    assert.equal(creds.phone, "55123");
+    assert.equal(creds.password, "");
+
+    // Case 4: invalid credentials, runsInWidget=false, cancel alert
+    globalThis.config = { runsInWidget: false };
+    alertActionResponse = 1; // 1 means Cancel usually
+    keychainStore.clear(); // Ensure we use empty config or fallback
+    creds = await getCredentials();
+    assert.equal(creds.phone, ""); // it falls back to CONFIG.phone which is ""
+    assert.equal(creds.password, "");
+
+    // Case 5: invalid credentials, runsInWidget=false, save valid inputs
+    globalThis.config = { runsInWidget: false };
+    alertActionResponse = 0; // 0 means Save usually
+    textFieldValues = ["+52 55 1234-5679", "test_placeholder_pw"];
+    keychainStore.clear();
+    creds = await getCredentials();
+    assert.equal(creds.phone, "5512345679"); // stripped formatting
+    assert.equal(creds.password, "test_placeholder_pw");
+    assert.equal(keychainStore.get("TELCEL_PHONE"), "5512345679");
+    assert.equal(keychainStore.get("TELCEL_PASS"), "test_placeholder_pw");
+
+    // Case 6: valid inputs containing non-numeric, save valid
+    alertActionResponse = 0;
+    textFieldValues = ["55abc12345679x", "test_placeholder_pw2"];
+    keychainStore.clear();
+    creds = await getCredentials();
+    assert.equal(creds.phone, "5512345679"); // strips abc and x
+    assert.equal(creds.password, "test_placeholder_pw2");
+    assert.equal(keychainStore.get("TELCEL_PHONE"), "5512345679");
+    assert.equal(keychainStore.get("TELCEL_PASS"), "test_placeholder_pw2");
+
+    // Case 7: invalid inputs (short phone), don't save to Keychain
+    alertActionResponse = 0;
+    textFieldValues = ["12345", "test_placeholder_pw"];
+    keychainStore.clear();
+    creds = await getCredentials();
+    assert.equal(creds.phone, "12345");
+    assert.equal(creds.password, "test_placeholder_pw");
+    assert.equal(keychainStore.has("TELCEL_PHONE"), false);
+
+    // Case 7b: invalid inputs (rejected phone 5512345678), don't save to Keychain
+    alertActionResponse = 0;
+    textFieldValues = ["5512345678", "test_placeholder_pw"];
+    keychainStore.clear();
+    creds = await getCredentials();
+    assert.equal(creds.phone, "5512345678");
+    assert.equal(creds.password, "test_placeholder_pw");
+    assert.equal(keychainStore.has("TELCEL_PHONE"), false);
+
+    // Case 8: invalid inputs (empty pass), don't save to Keychain
+    alertActionResponse = 0;
+    textFieldValues = ["5512345678", ""];
+    keychainStore.clear();
+    creds = await getCredentials();
+    assert.equal(creds.phone, "5512345678");
+    assert.equal(creds.password, "");
+    assert.equal(keychainStore.has("TELCEL_PASS"), false);
+
+    console.log("✅ getCredentials tests passed!");
+
+  } finally {
+    globalThis.Keychain = origKeychain;
+    globalThis.config = origConfig;
+    globalThis.Alert = origAlert;
+  }
+};
+await runGetCredentialsTest();
+
+
 // 2. Test Swift parser with the same fixture, error rejection, phone normalization & footerText
 const swiftSource = readFileSync("MiTelcelWidget/TelcelNetworkService.swift", "utf8");
 const swiftTest = `${swiftSource}
+class MockURLProtocol: URLProtocol {
+    static var requestHandler: ((URLRequest) throws -> (HTTPURLResponse, Data))?
+
+    override class func canInit(with request: URLRequest) -> Bool {
+        return true
+    }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
+        return request
+    }
+
+    override func startLoading() {
+        guard let handler = MockURLProtocol.requestHandler else { return }
+        do {
+            let (response, data) = try handler(request)
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: data)
+            client?.urlProtocolDidFinishLoading(self)
+        } catch {
+            client?.urlProtocol(self, didFailWithError: error)
+        }
+    }
+
+    override func stopLoading() {}
+}
+
+extension TelcelNetworkService {
+    static func testRevokeSSOToken() async throws {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [MockURLProtocol.self]
+        let session = URLSession(configuration: config)
+
+        // Happy path
+        var requestCount = 0
+        MockURLProtocol.requestHandler = { request in
+            requestCount += 1
+            assert(request.url?.absoluteString == "https://dev.smapps.mx:9000/sso/revoke")
+            assert(request.httpMethod == "POST")
+            assert(request.value(forHTTPHeaderField: "Content-Type") == "application/x-www-form-urlencoded")
+            let bodyString = String(data: request.httpBody ?? Data(), encoding: .utf8)
+            assert(bodyString == "token=test_token_123&token_type=revoke")
+            return (HTTPURLResponse(), Data())
+        }
+        await revokeSSOToken("test_token_123", session: session)
+        assert(requestCount == 1)
+
+        // Empty token
+        requestCount = 0
+        MockURLProtocol.requestHandler = { request in
+            requestCount += 1
+            let bodyString = String(data: request.httpBody ?? Data(), encoding: .utf8)
+            assert(bodyString == "token=&token_type=revoke")
+            return (HTTPURLResponse(), Data())
+        }
+        await revokeSSOToken("", session: session)
+        assert(requestCount == 1)
+
+        // Edge case: URL encoding check
+        requestCount = 0
+        MockURLProtocol.requestHandler = { request in
+            requestCount += 1
+            let bodyString = String(data: request.httpBody ?? Data(), encoding: .utf8)
+            // URLComponents percent encodes +, =, &, space, and %
+            assert(bodyString == "token=token%2B%3D%26%20weird%25chars&token_type=revoke")
+            return (HTTPURLResponse(), Data())
+        }
+        await revokeSSOToken("token+=& weird%chars", session: session)
+        assert(requestCount == 1)
+    }
+}
+
+let sem = DispatchSemaphore(value: 0)
+Task {
+    try await TelcelNetworkService.testRevokeSSOToken()
+    sem.signal()
+}
+sem.wait()
+
 let json = #"""
 ${JSON.stringify(fixture)}
 """#.data(using: .utf8)!
