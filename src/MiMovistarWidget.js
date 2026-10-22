@@ -34,61 +34,104 @@ const MONTHS_ES = [
   "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"
 ];
 
-async function loginWithWebView() {
-  if (typeof WebView === "undefined" || (typeof config !== "undefined" && config.runsInWidget)) {
+async function validateMovistarCredentials(pId) {
+  if (!pId) return false;
+  try {
+    const res = await requestMovistar(
+      "https://mi.movistar.com.mx/consumptions-controller/datos-iniciales",
+      {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "Authorization": pId
+      }
+    );
+    return Boolean(res?.content && typeof res.content === "string" && res.content.includes(":"));
+  } catch (_) {
+    return false;
+  }
+}
+
+async function loginWithWebView(validator = validateMovistarCredentials) {
+  if (typeof config !== "undefined" && config.runsInWidget) {
     return "";
   }
   let capturedPid = "";
-  const wv = new WebView();
-  wv.shouldAllowRequest = (req) => {
-    const m = String(req?.url || "").match(/[?&]p_id=([^&#]+)/);
-    if (m) capturedPid = decodeURIComponent(m[1]);
-    return true;
-  };
-  await wv.loadURL("https://mi.movistar.com.mx/login");
-  await wv.present(false);
-  try {
-    const guardFromPage = await wv.evaluateJavaScript(
-      "typeof guardString !== 'undefined' ? String(guardString) : ''",
-      false
-    );
-    const extracted = guardFromPage ? decodeGuardString(guardFromPage) : null;
-    if (extracted && typeof Keychain !== "undefined") Keychain.set("MOVISTAR_GUARD_KEY", extracted);
-  } catch (_) {}
-  if (!capturedPid) {
+  if (typeof WebView !== "undefined") {
+    const wv = new WebView();
+    wv.shouldAllowRequest = (req) => {
+      const m = String(req?.url || "").match(/[?&]p_id=([^&#]+)/);
+      if (m) capturedPid = decodeURIComponent(m[1]);
+      return true;
+    };
+    await wv.loadURL("https://mi.movistar.com.mx/login");
+    await wv.present(false);
     try {
-      const fromPage = await wv.evaluateJavaScript(
-        "typeof p_id !== 'undefined' ? String(p_id) : (new URLSearchParams(location.search).get('p_id') || '')",
+      const guardFromPage = await wv.evaluateJavaScript(
+        "typeof guardString !== 'undefined' ? String(guardString) : ''",
         false
       );
-      capturedPid = String(fromPage || "").trim();
+      const extracted = guardFromPage ? decodeGuardString(guardFromPage) : null;
+      if (extracted && typeof Keychain !== "undefined") Keychain.set("MOVISTAR_GUARD_KEY", extracted);
     } catch (_) {}
+    if (!capturedPid) {
+      try {
+        const fromPage = await wv.evaluateJavaScript(
+          "typeof p_id !== 'undefined' ? String(p_id) : (new URLSearchParams(location.search).get('p_id') || '')",
+          false
+        );
+        capturedPid = String(fromPage || "").trim();
+      } catch (_) {}
+    }
   }
-  if (!capturedPid && typeof Alert !== "undefined" && typeof config !== "undefined" && !config.runsInWidget) {
+
+  let isValid = capturedPid ? await validator(capturedPid) : false;
+  if (isValid) {
+    if (typeof Keychain !== "undefined") Keychain.set("MOVISTAR_PID", capturedPid);
+    return capturedPid;
+  }
+
+  let isError = Boolean(capturedPid && !isValid);
+  while (!isValid && typeof Alert !== "undefined" && (typeof config === "undefined" || !config.runsInWidget)) {
     const alert = new Alert();
-    alert.title = "Configurar Mi Movistar";
-    alert.message = "Pega tu token p_id (ec_auth) si ya iniciaste sesión en el portal:";
+    alert.title = isError ? "Credenciales incorrectas" : "Configurar Mi Movistar";
+    alert.message = isError
+      ? "Token o credenciales incorrectas. Por favor, ingresa tu token p_id nuevamente:"
+      : "Pega tu token p_id (ec_auth) si ya iniciaste sesión en el portal:";
     alert.addSecureTextField("Token p_id", "");
     alert.addAction("Guardar");
     alert.addCancelAction("Cancelar");
-    if ((await alert.presentAlert()) === 0) {
-      capturedPid = alert.textFieldValue(0).trim();
+    if ((await alert.presentAlert()) !== 0) {
+      capturedPid = "";
+      break;
     }
+    capturedPid = alert.textFieldValue(0).trim();
+    if (capturedPid) {
+      isValid = await validator(capturedPid);
+      if (isValid) {
+        if (typeof Keychain !== "undefined") Keychain.set("MOVISTAR_PID", capturedPid);
+        return capturedPid;
+      }
+    }
+    isError = true;
   }
-  if (capturedPid && typeof Keychain !== "undefined") Keychain.set("MOVISTAR_PID", capturedPid);
-  return capturedPid;
+  return isValid ? capturedPid : "";
 }
 
-async function getSessionToken(forceInteractive = false) {
+async function getSessionToken(forceInteractive = false, validator = validateMovistarCredentials) {
   // forceInteractive ignora el token guardado (Keychain/CONFIG) porque ya fue rechazado
   const stored = forceInteractive
     ? ""
     : (typeof Keychain !== "undefined" && Keychain.contains("MOVISTAR_PID")) ? Keychain.get("MOVISTAR_PID") : CONFIG.pId;
   let pId = String(stored || "").trim();
-  if (!pId && typeof config !== "undefined" && !config.runsInWidget) {
-    pId = await loginWithWebView();
+  if (!pId && (typeof config === "undefined" || !config.runsInWidget)) {
+    pId = await loginWithWebView(validator);
   }
   return pId;
+}
+
+async function getCredentials(validator = validateMovistarCredentials) {
+  const pId = await getSessionToken(false, validator);
+  return { pId };
 }
 
 async function main() {
@@ -264,7 +307,7 @@ async function fetchMovistarData(creds) {
   try {
     content = await fetchContent(pId);
   } catch (err) {
-    const canRelogin = !creds?.pId && typeof config !== "undefined" && !config.runsInWidget;
+    const canRelogin = !creds?.pId && (typeof config === "undefined" || !config.runsInWidget);
     const refreshedPid = canRelogin ? await getSessionToken(true) : "";
     if (!refreshedPid || refreshedPid === pId) throw err;
     content = await fetchContent(refreshedPid);
@@ -628,6 +671,10 @@ if (typeof module !== "undefined") {
     fetchGuardKey,
     getGuardKey,
     createWidget,
-    loadCache
+    loadCache,
+    validateMovistarCredentials,
+    loginWithWebView,
+    getSessionToken,
+    getCredentials
   };
 }

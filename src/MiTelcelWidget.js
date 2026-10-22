@@ -26,24 +26,103 @@ const COLORS = {
   alertRed: new Color("#FF453A")
 };
 
-async function getCredentials() {
-  let phone = String(Keychain.contains("TELCEL_PHONE") ? Keychain.get("TELCEL_PHONE") : CONFIG.phone || "").replace(/\D/g, "").slice(-10);
-  let password = Keychain.contains("TELCEL_PASS") ? Keychain.get("TELCEL_PASS") : CONFIG.password;
-  if ((phone.length !== 10 || phone === "5512345678" || !password || password === "TU_PASSWORD") && !config.runsInWidget) {
-    const alert = new Alert();
-    alert.title = "Configurar Mi Telcel";
-    alert.message = "Tus credenciales se guardarán en el Keychain de iOS.";
-    alert.addTextField("Número a 10 dígitos", phone);
-    alert.addSecureTextField("Contraseña Mi Telcel", "");
-    alert.addAction("Guardar");
-    alert.addCancelAction("Cancelar");
-    if ((await alert.presentAlert()) === 0) {
-      phone = alert.textFieldValue(0).replace(/\D/g, "").slice(-10);
-      password = alert.textFieldValue(1);
-      if (phone.length === 10 && phone !== "5512345678" && password && password !== "TU_PASSWORD") {
-        Keychain.set("TELCEL_PHONE", phone);
-        Keychain.set("TELCEL_PASS", password);
+async function validateTelcelCredentials(phone, password) {
+  try {
+    const passClean = String(password || "").replace(/\s+/g, "");
+    const pB64 = typeof Data !== "undefined"
+      ? Data.fromString(passClean).toBase64String()
+      : Buffer.from(passClean, "utf8").toString("base64");
+    const ua = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1";
+    const loginJson = await requestTelcel(
+      "https://wbl.telcel-id.com:8443/login",
+      "POST",
+      {
+        "Origin": "https://wbl.telcel-id.com:8443",
+        "Referer": "https://wbl.telcel-id.com:8443/login?sitedomain=https://www.mitelcel.com&CCode=52&Type=MSISDN&Invocation=iFrame",
+        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+        "X-Requested-With": "XMLHttpRequest",
+        "User-Agent": ua
+      },
+      [
+        `username=${encodeURIComponent(phone)}`,
+        `telcel-pass=${encodeURIComponent(password)}`,
+        "sitedomain=https://www.mitelcel.com",
+        "CCode=52",
+        "Type=MSISDN",
+        "Invocation=iFrame",
+        `MSISDN=${encodeURIComponent(phone)}`,
+        "Source=",
+        `pB64=${encodeURIComponent(pB64)}`,
+        "url=https://wbl.telcel-id.com:8443"
+      ].join("&")
+    );
+    const ssoToken = loginJson?.token;
+    if (!ssoToken) return false;
+    try {
+      await requestTelcel(
+        "https://dev.smapps.mx:9000/sso/revoke",
+        "POST",
+        {
+          "Content-Type": "application/x-www-form-urlencoded",
+          "Accept": "application/json"
+        },
+        `token=${encodeURIComponent(ssoToken)}&token_type=revoke`,
+        false
+      );
+    } catch (_) {}
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+async function getCredentials(validator = validateTelcelCredentials) {
+  let phone = String(
+    typeof Keychain !== "undefined" && Keychain.contains("TELCEL_PHONE")
+      ? Keychain.get("TELCEL_PHONE")
+      : CONFIG.phone || ""
+  ).replace(/\D/g, "").slice(-10);
+  let password = typeof Keychain !== "undefined" && Keychain.contains("TELCEL_PASS")
+    ? Keychain.get("TELCEL_PASS")
+    : CONFIG.password;
+
+  if (
+    (phone.length !== 10 || phone === "5512345678" || !password || password === "TU_PASSWORD") &&
+    (typeof config === "undefined" || !config.runsInWidget)
+  ) {
+    let isError = false;
+    while (true) {
+      const alert = new Alert();
+      alert.title = isError ? "Credenciales incorrectas" : "Configurar Mi Telcel";
+      alert.message = isError
+        ? "Número o contraseña incorrectos. Por favor, ingresa tus credenciales nuevamente."
+        : "Tus credenciales se guardarán en el Keychain de iOS.";
+      alert.addTextField("Número a 10 dígitos", phone);
+      alert.addSecureTextField("Contraseña Mi Telcel", "");
+      alert.addAction("Guardar");
+      alert.addCancelAction("Cancelar");
+      if ((await alert.presentAlert()) !== 0) {
+        phone = "";
+        password = "";
+        break;
       }
+
+      const enteredPhone = alert.textFieldValue(0).replace(/\D/g, "").slice(-10);
+      const enteredPass = alert.textFieldValue(1);
+      if (enteredPhone.length === 10 && enteredPhone !== "5512345678" && enteredPass && enteredPass !== "TU_PASSWORD") {
+        const valid = await validator(enteredPhone, enteredPass);
+        if (valid) {
+          phone = enteredPhone;
+          password = enteredPass;
+          if (typeof Keychain !== "undefined") {
+            Keychain.set("TELCEL_PHONE", phone);
+            Keychain.set("TELCEL_PASS", password);
+          }
+          break;
+        }
+      }
+      isError = true;
+      phone = enteredPhone;
     }
   }
   return { phone, password };
@@ -624,5 +703,13 @@ if (typeof Script !== "undefined") {
   main();
 }
 if (typeof module !== "undefined") {
-  module.exports = { fetchTelcelData, parseTelcelResponse, createWidget, loadCache, getCredentials, requestTelcel };
+  module.exports = {
+    fetchTelcelData,
+    parseTelcelResponse,
+    createWidget,
+    loadCache,
+    getCredentials,
+    validateTelcelCredentials,
+    requestTelcel
+  };
 }

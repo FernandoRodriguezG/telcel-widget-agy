@@ -50,8 +50,8 @@ globalThis.ListWidget = class {
   }
 };
 const require = createRequire(import.meta.url);
-const { parseTelcelResponse, createWidget, loadCache, getCredentials, requestTelcel } = require("../src/MiTelcelWidget.js");
-const { fetchBaitData, parseBaitResponse, createWidget: createBaitWidget, loadCache: loadBaitCache, fetchServiceKey: fetchBaitServiceKey, CONFIG: baitConfig, getCredentials: getBaitCredentials } = require("../src/MiBaitWidget.js");
+const { parseTelcelResponse, createWidget, loadCache, getCredentials, validateTelcelCredentials, requestTelcel } = require("../src/MiTelcelWidget.js");
+const { fetchBaitData, parseBaitResponse, createWidget: createBaitWidget, loadCache: loadBaitCache, fetchServiceKey: fetchBaitServiceKey, CONFIG: baitConfig, getCredentials: getBaitCredentials, validateBaitCredentials } = require("../src/MiBaitWidget.js");
 const {
   fetchMovistarData,
   parseMovistarResponse,
@@ -59,7 +59,11 @@ const {
   extractGuardKey,
   fetchGuardKey,
   createWidget: createMovistarWidget,
-  loadCache: loadMovistarCache
+  loadCache: loadMovistarCache,
+  validateMovistarCredentials,
+  loginWithWebView,
+  getSessionToken,
+  getCredentials: getMovistarCredentials
 } = require("../src/MiMovistarWidget.js");
 const { formatSummary } = await import("../android/mitelcel_widget.mjs");
 
@@ -617,9 +621,10 @@ const runGetCredentialsTest = async () => {
   const origAlert = globalThis.Alert;
 
   try {
-    let alertTitle, alertMessage, alertFields, alertSecureFields, alertActions, alertCancelActions;
-    let alertActionResponse = 0;
-    let textFieldValues = [];
+    let alertTitle, alertMessage;
+    let alertActionResponses = [];
+    let textFieldValuesList = [];
+    let currentFields = [];
 
     globalThis.Alert = class {
       constructor() {
@@ -628,13 +633,18 @@ const runGetCredentialsTest = async () => {
         this.actions = [];
       }
       set title(t) { alertTitle = t; }
+      get title() { return alertTitle; }
       set message(m) { alertMessage = m; }
+      get message() { return alertMessage; }
       addTextField(placeholder, initialValue) { this.fields.push({placeholder, initialValue}); }
       addSecureTextField(placeholder, initialValue) { this.secureFields.push({placeholder, initialValue}); }
       addAction(a) { this.actions.push(a); }
       addCancelAction(a) { this.actions.push(a); }
-      async presentAlert() { return alertActionResponse; }
-      textFieldValue(idx) { return textFieldValues[idx]; }
+      async presentAlert() {
+        currentFields = textFieldValuesList.length > 0 ? textFieldValuesList.shift() : [];
+        return alertActionResponses.length > 0 ? alertActionResponses.shift() : 1;
+      }
+      textFieldValue(idx) { return currentFields[idx] ?? ""; }
     };
 
     let keychainStore = new Map();
@@ -644,17 +654,19 @@ const runGetCredentialsTest = async () => {
       set: (k, v) => keychainStore.set(k, v)
     };
 
+    const mockTelcelValidator = async (phone, pass) => pass.startsWith("test_placeholder_pw") || pass === "valid_pw";
+
     // Case 1: valid credentials in keychain, runsInWidget=true
     globalThis.config = { runsInWidget: true };
     keychainStore.set("TELCEL_PHONE", "5512345679");
     keychainStore.set("TELCEL_PASS", "dummy_password");
-    let creds = await getCredentials();
+    let creds = await getCredentials(mockTelcelValidator);
     assert.equal(creds.phone, "5512345679");
     assert.equal(creds.password, "dummy_password");
 
     // Case 2: valid credentials, runsInWidget=false (should skip alert)
     globalThis.config = { runsInWidget: false };
-    creds = await getCredentials();
+    creds = await getCredentials(mockTelcelValidator);
     assert.equal(creds.phone, "5512345679");
     assert.equal(creds.password, "dummy_password");
 
@@ -662,65 +674,72 @@ const runGetCredentialsTest = async () => {
     globalThis.config = { runsInWidget: true };
     keychainStore.set("TELCEL_PHONE", "55123");
     keychainStore.set("TELCEL_PASS", "");
-    creds = await getCredentials();
+    creds = await getCredentials(mockTelcelValidator);
     assert.equal(creds.phone, "55123");
     assert.equal(creds.password, "");
 
     // Case 4: invalid credentials, runsInWidget=false, cancel alert
     globalThis.config = { runsInWidget: false };
-    alertActionResponse = 1; // 1 means Cancel usually
+    alertActionResponses = [1]; // 1 means Cancel
     keychainStore.clear(); // Ensure we use empty config or fallback
-    creds = await getCredentials();
+    creds = await getCredentials(mockTelcelValidator);
     assert.equal(creds.phone, ""); // it falls back to CONFIG.phone which is ""
     assert.equal(creds.password, "");
 
     // Case 5: invalid credentials, runsInWidget=false, save valid inputs
     globalThis.config = { runsInWidget: false };
-    alertActionResponse = 0; // 0 means Save usually
-    textFieldValues = ["+52 55 1234-5679", "test_placeholder_pw"];
+    alertActionResponses = [0]; // 0 means Save
+    textFieldValuesList = [["+52 55 1234-5679", "test_placeholder_pw"]];
     keychainStore.clear();
-    creds = await getCredentials();
+    creds = await getCredentials(mockTelcelValidator);
     assert.equal(creds.phone, "5512345679"); // stripped formatting
     assert.equal(creds.password, "test_placeholder_pw");
     assert.equal(keychainStore.get("TELCEL_PHONE"), "5512345679");
     assert.equal(keychainStore.get("TELCEL_PASS"), "test_placeholder_pw");
 
     // Case 6: valid inputs containing non-numeric, save valid
-    alertActionResponse = 0;
-    textFieldValues = ["55abc12345679x", "test_placeholder_pw2"];
+    alertActionResponses = [0];
+    textFieldValuesList = [["55abc12345679x", "test_placeholder_pw2"]];
     keychainStore.clear();
-    creds = await getCredentials();
+    creds = await getCredentials(mockTelcelValidator);
     assert.equal(creds.phone, "5512345679"); // strips abc and x
     assert.equal(creds.password, "test_placeholder_pw2");
     assert.equal(keychainStore.get("TELCEL_PHONE"), "5512345679");
     assert.equal(keychainStore.get("TELCEL_PASS"), "test_placeholder_pw2");
 
-    // Case 7: invalid inputs (short phone), don't save to Keychain
-    alertActionResponse = 0;
-    textFieldValues = ["12345", "test_placeholder_pw"];
+    // Case 7: invalid inputs (short phone), prompts "Credenciales incorrectas", then cancel
+    alertActionResponses = [0, 1];
+    textFieldValuesList = [["12345", "test_placeholder_pw"], ["12345", "test_placeholder_pw"]];
     keychainStore.clear();
-    creds = await getCredentials();
-    assert.equal(creds.phone, "12345");
-    assert.equal(creds.password, "test_placeholder_pw");
+    creds = await getCredentials(mockTelcelValidator);
+    assert.equal(alertTitle, "Credenciales incorrectas");
     assert.equal(keychainStore.has("TELCEL_PHONE"), false);
 
-    // Case 7b: invalid inputs (rejected phone 5512345678), don't save to Keychain
-    alertActionResponse = 0;
-    textFieldValues = ["5512345678", "test_placeholder_pw"];
+    // Case 7b: invalid inputs (rejected phone 5512345678), prompts "Credenciales incorrectas", then cancel
+    alertActionResponses = [0, 1];
+    textFieldValuesList = [["5512345678", "test_placeholder_pw"], ["5512345678", "test_placeholder_pw"]];
     keychainStore.clear();
-    creds = await getCredentials();
-    assert.equal(creds.phone, "5512345678");
-    assert.equal(creds.password, "test_placeholder_pw");
+    creds = await getCredentials(mockTelcelValidator);
+    assert.equal(alertTitle, "Credenciales incorrectas");
     assert.equal(keychainStore.has("TELCEL_PHONE"), false);
 
-    // Case 8: invalid inputs (empty pass), don't save to Keychain
-    alertActionResponse = 0;
-    textFieldValues = ["5512345678", ""];
+    // Case 8: invalid inputs (empty pass), prompts "Credenciales incorrectas", then cancel
+    alertActionResponses = [0, 1];
+    textFieldValuesList = [["5512345678", ""], ["5512345678", ""]];
     keychainStore.clear();
-    creds = await getCredentials();
-    assert.equal(creds.phone, "5512345678");
-    assert.equal(creds.password, "");
+    creds = await getCredentials(mockTelcelValidator);
+    assert.equal(alertTitle, "Credenciales incorrectas");
     assert.equal(keychainStore.has("TELCEL_PASS"), false);
+
+    // Case 9: Incorrect credentials rejected by validator, prompts "Credenciales incorrectas", then valid
+    alertActionResponses = [0, 0];
+    textFieldValuesList = [["5512345679", "wrong_pw"], ["5512345679", "valid_pw"]];
+    keychainStore.clear();
+    creds = await getCredentials(mockTelcelValidator);
+    assert.equal(creds.phone, "5512345679");
+    assert.equal(creds.password, "valid_pw");
+    assert.equal(keychainStore.get("TELCEL_PHONE"), "5512345679");
+    assert.equal(keychainStore.get("TELCEL_PASS"), "valid_pw");
 
     console.log("✅ getCredentials tests passed!");
 
@@ -761,36 +780,67 @@ const testBaitCredentials = async () => {
     creds = await getBaitCredentials();
     assert.equal(creds.phone, "123");
 
-    // Scenario 4 & 5: Interactive Mode
+    // Scenario 4 & 5 & 6: Interactive Mode
     globalThis.config = { runsInWidget: false };
     baitConfig.phone = "invalid";
 
-    let alertAction = 0;
+    let alertTitle = "";
+    let alertActionResponses = [];
+    let textFieldValuesList = [];
+    let currentFields = [];
     let savedKeychain = {};
 
     globalThis.Alert = class {
       constructor() { this.textFields = []; }
+      set title(t) { alertTitle = t; }
+      get title() { return alertTitle; }
       addTextField(t, v) { this.textFields.push(v); }
       addAction() {}
       addCancelAction() {}
-      async presentAlert() { return alertAction; }
-      textFieldValue() { return "+52 (55) 9988-7766"; }
+      async presentAlert() {
+        currentFields = textFieldValuesList.length > 0 ? textFieldValuesList.shift() : [];
+        return alertActionResponses.length > 0 ? alertActionResponses.shift() : 1;
+      }
+      textFieldValue(idx = 0) { return currentFields[idx] ?? ""; }
     };
 
     globalThis.Keychain.set = (k, v) => { savedKeychain[k] = v; };
 
+    const mockBaitValidator = async (phone) => phone === "5599887766";
+
     // Scenario 4: Interactive Save
-    alertAction = 0; // Return index of first action (Guardar)
-    creds = await getBaitCredentials();
+    alertActionResponses = [0]; // Return index of first action (Guardar)
+    textFieldValuesList = [["+52 (55) 9988-7766"]];
+    savedKeychain = {};
+    creds = await getBaitCredentials(mockBaitValidator);
     assert.equal(creds.phone, "5599887766");
     assert.equal(savedKeychain["BAIT_PHONE"], "5599887766");
 
     // Scenario 5: Interactive Cancel
-    alertAction = 1; // Return index of second action (Cancelar)
+    alertActionResponses = [1]; // Return index of second action (Cancelar)
+    textFieldValuesList = [["+52 (55) 9988-7766"]];
     savedKeychain = {};
-    creds = await getBaitCredentials();
+    creds = await getBaitCredentials(mockBaitValidator);
     assert.equal(creds.phone, "");
     assert.equal(savedKeychain["BAIT_PHONE"], undefined);
+
+    // Scenario 6: Interactive Retry on invalid number
+    alertActionResponses = [0, 0];
+    textFieldValuesList = [["12345"], ["5599887766"]];
+    savedKeychain = {};
+    creds = await getBaitCredentials(mockBaitValidator);
+    assert.equal(alertTitle, "Número incorrecto");
+    assert.equal(creds.phone, "5599887766");
+    assert.equal(savedKeychain["BAIT_PHONE"], "5599887766");
+
+    // Scenario 7: Validator rejects non-Bait number, prompts "Número incorrecto", then valid
+    alertActionResponses = [0, 0];
+    textFieldValuesList = [["5511112222"], ["5599887766"]];
+    savedKeychain = {};
+    creds = await getBaitCredentials(mockBaitValidator);
+    assert.equal(alertTitle, "Número incorrecto");
+    assert.equal(creds.phone, "5599887766");
+    assert.equal(savedKeychain["BAIT_PHONE"], "5599887766");
   } finally {
     globalThis.Keychain = origKeychain;
     globalThis.config = origConfig;
@@ -800,6 +850,144 @@ const testBaitCredentials = async () => {
 };
 
 await testBaitCredentials();
+
+// 1g. Test Movistar getCredentials & getSessionToken
+const testMovistarCredentials = async () => {
+  const origKeychain = globalThis.Keychain;
+  const origConfig = globalThis.config;
+  const origAlert = globalThis.Alert;
+
+  try {
+    let savedKeychain = {};
+    globalThis.Keychain = {
+      contains: (k) => k in savedKeychain,
+      get: (k) => savedKeychain[k],
+      set: (k, v) => { savedKeychain[k] = v; }
+    };
+
+    // Scenario 1: Keychain Happy Path
+    savedKeychain["MOVISTAR_PID"] = "cached_pid_123";
+    globalThis.config = { runsInWidget: true };
+    assert.equal(await getSessionToken(false), "cached_pid_123");
+
+    // Scenario 2: Widget Mode Bypass when empty
+    delete savedKeychain["MOVISTAR_PID"];
+    assert.equal(await getSessionToken(false), "");
+
+    // Interactive Mode tests
+    globalThis.config = { runsInWidget: false };
+    let alertTitle = "";
+    let alertActionResponses = [];
+    let textFieldValuesList = [];
+    let currentFields = [];
+
+    globalThis.Alert = class {
+      constructor() { this.fields = []; }
+      set title(t) { alertTitle = t; }
+      get title() { return alertTitle; }
+      addSecureTextField() {}
+      addAction() {}
+      addCancelAction() {}
+      async presentAlert() {
+        currentFields = textFieldValuesList.length > 0 ? textFieldValuesList.shift() : [];
+        return alertActionResponses.length > 0 ? alertActionResponses.shift() : 1;
+      }
+      textFieldValue(idx = 0) { return currentFields[idx] ?? ""; }
+    };
+
+    const mockMovistarValidator = async (pid) => pid === "valid_pid_456";
+
+    // Scenario 3: Interactive Save
+    alertActionResponses = [0];
+    textFieldValuesList = [["valid_pid_456"]];
+    delete savedKeychain["MOVISTAR_PID"];
+    const token = await getSessionToken(false, mockMovistarValidator);
+    assert.equal(token, "valid_pid_456");
+    assert.equal(savedKeychain["MOVISTAR_PID"], "valid_pid_456");
+
+    // Scenario 4: Interactive Cancel
+    alertActionResponses = [1];
+    textFieldValuesList = [["valid_pid_456"]];
+    delete savedKeychain["MOVISTAR_PID"];
+    const cancelledToken = await getSessionToken(false, mockMovistarValidator);
+    assert.equal(cancelledToken, "");
+    assert.equal(savedKeychain["MOVISTAR_PID"], undefined);
+
+    // Scenario 5: Interactive Retry on invalid token
+    alertActionResponses = [0, 0];
+    textFieldValuesList = [["invalid_token"], ["valid_pid_456"]];
+    delete savedKeychain["MOVISTAR_PID"];
+    const retriedToken = await getSessionToken(false, mockMovistarValidator);
+    assert.equal(alertTitle, "Credenciales incorrectas");
+    assert.equal(retriedToken, "valid_pid_456");
+    assert.equal(savedKeychain["MOVISTAR_PID"], "valid_pid_456");
+
+    // Scenario 6: getCredentials wrapper
+    const creds = await getMovistarCredentials(mockMovistarValidator);
+    assert.equal(creds.pId, "valid_pid_456");
+  } finally {
+    globalThis.Keychain = origKeychain;
+    globalThis.config = origConfig;
+    globalThis.Alert = origAlert;
+  }
+};
+
+await testMovistarCredentials();
+
+// 1h. Test Network Validators
+const testNetworkValidators = async () => {
+  const origFetch = globalThis.fetch;
+  const origRequest = globalThis.Request;
+  delete globalThis.Request;
+  try {
+    // 1. validateTelcelCredentials
+    let telcelRevoked = false;
+    globalThis.fetch = async (url) => {
+      if (url.includes("/login")) {
+        return { ok: true, json: async () => ({ token: "mock_sso" }) };
+      }
+      if (url.includes("/revoke")) {
+        telcelRevoked = true;
+        return { ok: true, text: async () => "ok" };
+      }
+      return { ok: false };
+    };
+    assert.equal(await validateTelcelCredentials("5512345678", "valid_pw"), true);
+    assert.equal(telcelRevoked, true);
+
+    globalThis.fetch = async () => ({ ok: true, json: async () => ({ error: { description: "bad" } }) });
+    assert.equal(await validateTelcelCredentials("5512345678", "wrong_pw"), false);
+
+    // 2. validateBaitCredentials
+    globalThis.fetch = async (url) => {
+      if (url.includes("/get/consumption")) {
+        return { ok: true, json: async () => ({ success: true, data: [] }) };
+      }
+      return { ok: true, text: async () => "ordKey" };
+    };
+    assert.equal(await validateBaitCredentials("5512345678"), true);
+
+    globalThis.fetch = async (url) => {
+      if (url.includes("/get/consumption")) {
+        return { ok: true, json: async () => ({ success: false }) };
+      }
+      return { ok: true, text: async () => "ordKey" };
+    };
+    assert.equal(await validateBaitCredentials("5512345678"), false);
+
+    // 3. validateMovistarCredentials
+    globalThis.fetch = async () => ({ ok: true, json: async () => ({ content: "cipher:iv" }) });
+    assert.equal(await validateMovistarCredentials("test_pid"), true);
+
+    globalThis.fetch = async () => ({ ok: false, status: 401 });
+    assert.equal(await validateMovistarCredentials("test_pid"), false);
+  } finally {
+    globalThis.fetch = origFetch;
+    if (origRequest !== undefined) globalThis.Request = origRequest;
+  }
+};
+
+await testNetworkValidators();
 
 // 2. Test Swift parser with the same fixture, error rejection, phone normalization & footerText
 const swiftSource = readFileSync("MiTelcelWidget/TelcelNetworkService.swift", "utf8");
