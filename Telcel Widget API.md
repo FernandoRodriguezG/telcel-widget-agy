@@ -77,7 +77,7 @@ Intercambia el `sso_token` por dos tokens JWT específicos de plataforma:
 - **Método y URL:**
   `GET https://mi-telcel.smapps.mx/security/1.0.0/v2/token?user={10_digitos}&token={sso_token}`
 - **Headers requeridos:**
-  - `Authorization: Basic bXRwc2VydmljZXM6NyQ4N3JmRnN3ZSQyMV8=` *(Credencial Basic estática de la SPA de Mi Telcel)*
+  - `Authorization: Basic $MTL_BASIC` *(Obtenido dinámicamente del JS de la SPA)*
   - `scope: token:mit|token:b2f`
   - `Accept: application/json`
   - `Content-Type: application/json`
@@ -163,7 +163,7 @@ Revoca el token SSO inmediatamente después de actualizar el widget para evitar 
 
 ## 3. Endpoints Complementarios (`mi-telcel.smapps.mx` con `MTL_TOKEN`)
 
-Si en el futuro se desea consultar información adicional fuera del Home Flow, estos endpoints aceptan `Authorization: Basic bXRwc2VydmljZXM6NyQ4N3JmRnN3ZSQyMV8=` y `Token: <MTL_TOKEN>`:
+Si en el futuro se desea consultar información adicional fuera del Home Flow, estos endpoints aceptan `Authorization: Basic $MTL_BASIC` y `Token: <MTL_TOKEN>`:
 
 1. **Validación de Perfil y Cuenta (`POST /users/1.0.0/v2/info/validate`):**
    - Body: `{"user": "<10_digitos>"}`

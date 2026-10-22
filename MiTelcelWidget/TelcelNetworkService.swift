@@ -91,7 +91,6 @@ public actor TelcelNetworkService {
     // shortcut: Personal Team signing without App Group falls back to process container, enable group.mx.mitelcel.widget in paid Apple Developer account
     public static let appGroupId = "group.mx.mitelcel.widget"
 
-    private let mtlBasic = "bXRwc2VydmljZXM6NyQ4N3JmRnN3ZSQyMV8="
     private let ua = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1"
     private let cacheFileName = "telcel_widget_cache.json"
 
@@ -144,6 +143,35 @@ public actor TelcelNetworkService {
         setKeychain("telcel_pass", password)
         sharedDefaults.set(clean, forKey: "telcel_phone")
         sharedDefaults.removeObject(forKey: "telcel_pass")
+    }
+
+    private func fetchDynamicMtlBasic() async throws -> String {
+        guard let url = URL(string: "https://www.mitelcel.com/mitelcel/login") else { throw URLError(.badURL) }
+
+        let (htmlData, _) = try await URLSession.shared.data(from: url)
+        guard let html = String(data: htmlData, encoding: .utf8) else { throw URLError(.cannotParseResponse) }
+
+        let pattern = "src=\"(/assets/index-[^\"]+\\.js)\""
+        let regex = try NSRegularExpression(pattern: pattern, options: [])
+        guard let match = regex.firstMatch(in: html, options: [], range: NSRange(location: 0, length: html.utf16.count)),
+              let range = Range(match.range(at: 1), in: html) else {
+            throw URLError(.cannotParseResponse)
+        }
+
+        let scriptPath = String(html[range])
+        guard let scriptUrl = URL(string: "https://www.mitelcel.com" + scriptPath) else { throw URLError(.badURL) }
+
+        let (scriptData, _) = try await URLSession.shared.data(from: scriptUrl)
+        guard let scriptText = String(data: scriptData, encoding: .utf8) else { throw URLError(.cannotParseResponse) }
+
+        let basicPattern = "MTL_AUTHORIZATION_BASIC\\s*:\\s*\"([^\"]+)\""
+        let basicRegex = try NSRegularExpression(pattern: basicPattern, options: [])
+        guard let basicMatch = basicRegex.firstMatch(in: scriptText, options: [], range: NSRange(location: 0, length: scriptText.utf16.count)),
+              let basicRange = Range(basicMatch.range(at: 1), in: scriptText) else {
+            throw URLError(.cannotParseResponse)
+        }
+
+        return String(scriptText[basicRange])
     }
 
     public func fetchUsage(forceRefresh: Bool = false, overridePhone: String? = nil, overridePassword: String? = nil) async -> TelcelUsageEntry {
@@ -208,7 +236,8 @@ public actor TelcelNetworkService {
                 URLQueryItem(name: "token", value: token)
             ]
             var tokenReq = URLRequest(url: tokenComps.url!)
-            tokenReq.setValue("Basic \(mtlBasic)", forHTTPHeaderField: "Authorization")
+            let dynamicBasic = try await fetchDynamicMtlBasic()
+            tokenReq.setValue("Basic \(dynamicBasic)", forHTTPHeaderField: "Authorization")
             tokenReq.setValue("token:mit|token:b2f", forHTTPHeaderField: "scope")
             tokenReq.setValue("application/json", forHTTPHeaderField: "Accept")
             tokenReq.setValue("0.14", forHTTPHeaderField: "App-Version")

@@ -17,7 +17,13 @@ El portal web actual de Mi Telcel (`https://www.mitelcel.com/login`) reemplazó 
 export TELCEL_PHONE="5512345678"
 export TELCEL_PASS="TU_PASSWORD"
 export PASS_B64="$(printf '%s' "$TELCEL_PASS" | tr -d '[:space:]' | base64 | tr -d '\r\n')"
-export MTL_BASIC="bXRwc2VydmljZXM6NyQ4N3JmRnN3ZSQyMV8="
+
+# Scraping del token basic dinámico
+HTML_CONTENT=$(curl -s "https://www.mitelcel.com/mitelcel/login")
+JS_PATH=$(echo "$HTML_CONTENT" | grep -o 'src="/assets/index-[^"]*\.js"' | sed 's/src="//;s/"//')
+JS_CONTENT=$(curl -s "https://www.mitelcel.com$JS_PATH")
+export MTL_BASIC=$(echo "$JS_CONTENT" | grep -o 'MTL_AUTHORIZATION_BASIC:"[^"]*"' | sed 's/MTL_AUTHORIZATION_BASIC:"//;s/"//')
+
 export UA="Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1"
 ```
 
@@ -208,7 +214,7 @@ rm -f cookies.txt
 | Orden | Operación | Método | URL Completa | Autenticación / Headers Clave |
 | :---: | :--- | :---: | :--- | :--- |
 | **1** | `01 - WebLogin SSO` | `POST` | `https://wbl.telcel-id.com:8443/login` | `Content-Type: application/x-www-form-urlencoded`<br>Body: `username`, `telcel-pass`, `pB64` (Base64), `MSISDN`, `CCode=52`, `Type=MSISDN`, `Invocation=iFrame`, `sitedomain=https://www.mitelcel.com` |
-| **2** | `02 - Token Exchange` | `GET` | `https://mi-telcel.smapps.mx/security/1.0.0/v2/token?user={{phone}}&token={{sso_token}}` | `Authorization: Basic bXRwc2VydmljZXM6NyQ4N3JmRnN3ZSQyMV8=`<br>`scope: token:mit\|token:b2f` |
+| **2** | `02 - Token Exchange` | `GET` | `https://mi-telcel.smapps.mx/security/1.0.0/v2/token?user={{phone}}&token={{sso_token}}` | `Authorization: Basic $MTL_BASIC`<br>`scope: token:mit\|token:b2f` |
 | **3** | `03 - Validate Line Info` | `POST` | `https://mi-telcel.smapps.mx/users/1.0.0/v2/info/validate` | `Authorization: Basic ...`, `Token: {{mtl_token}}`<br>Body JSON: `{"user": "{{phone}}"}` |
 | **4** | `04 - Home Flow (Wave B2F)` | `GET` | `https://api.journeys.telcel.wavebybemobi.com/api/components/flow/home?externalCode=52{{phone}}` | `Authorization: Bearer {{b2f_token}}`<br>`x-wave-sdk: WEB`, `x-wave-os: macos-web` |
 | **5** | `05 - Consumo Details` | `GET` | `https://mi-telcel.smapps.mx/users/1.0.0/consumption/v2/details?user={{phone}}&profile={{profile}}&region={{region}}&typeRequest=getModule&account={{account}}` | `Authorization: Basic ...`, `Token: {{mtl_token}}`, `App-Version: 0.15`, `user`, `profile`, `region` |
