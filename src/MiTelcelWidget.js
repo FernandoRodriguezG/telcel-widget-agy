@@ -271,19 +271,37 @@ function parseTelcelResponse(payload) {
     }
   }
 
-  const suffixes = Array.from(suffixesSet).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  const suffixes = Array.from(suffixesSet).sort((a, b) => {
+    const partsA = a.split('-');
+    const partsB = b.split('-');
+    for (let i = 0; i < Math.max(partsA.length, partsB.length); i++) {
+      const numA = parseInt(partsA[i] || '0', 10);
+      const numB = parseInt(partsB[i] || '0', 10);
+      if (numA !== numB) return numA - numB;
+    }
+    return 0;
+  });
 
   const toMB = (val, unit) => {
-    const n = parseFloat(val);
-    if (!Number.isFinite(n)) return null;
-    const u = String(unit || "MB").toUpperCase();
-    return u === "GB" ? n * 1000 : u === "KB" ? n / 1024 : n;
+    if (val === undefined || val === null || val === "") return null;
+    const n = Number(val);
+    if (Number.isNaN(n)) return null;
+
+    if (unit === "GB" || unit === "gb") return n * 1000;
+    if (unit === "KB" || unit === "kb") return n / 1024;
+    return n;
   };
 
   const parseBucket = (sfx) => {
     const chartData = byId[`tabs-plans-v2-usage-chart-${sfx}`]?.data;
-    const usedKB = chartData?.find(d => d.key === "used")?.value;
-    const availKB = chartData?.find(d => d.key === "available")?.value;
+    let usedKB = undefined;
+    let availKB = undefined;
+    if (chartData) {
+      for (let i = 0; i < chartData.length; i++) {
+        if (chartData[i].key === "used") usedKB = chartData[i].value;
+        else if (chartData[i].key === "available") availKB = chartData[i].value;
+      }
+    }
 
     const labelUsedMB = toMB(
       byId[`tabs-plans-v2-used-data-value-${sfx}`]?.value,
@@ -303,8 +321,23 @@ function parseTelcelResponse(payload) {
     const availableMB = labelAvailMB ?? Math.max(0, totalMB - consumedMB);
 
     const cutoffSegments = byId[`tabs-plans-v2-limited-cutoff-message-${sfx}`]?.segments || [];
-    const cutoffText = cutoffSegments.map(s => s.text || "").join("");
-    const daysMatch = cutoffText.match(/(\d+)/);
+    let cutoffText = "";
+    for (let i = 0; i < cutoffSegments.length; i++) {
+      cutoffText += cutoffSegments[i].text || "";
+    }
+
+    let numStr = "";
+    let started = false;
+    for (let i = 0; i < cutoffText.length; i++) {
+      const c = cutoffText.charCodeAt(i);
+      if (c >= 48 && c <= 57) { // '0'-'9'
+        numStr += cutoffText[i];
+        started = true;
+      } else if (started) {
+        break;
+      }
+    }
+    const daysLeft = started ? Number(numStr) : null;
 
     return {
       id: sfx,
@@ -312,7 +345,7 @@ function parseTelcelResponse(payload) {
       consumedMB,
       totalMB,
       availableMB,
-      daysLeft: daysMatch ? Number(daysMatch[1]) : null
+      daysLeft
     };
   };
 
@@ -335,7 +368,6 @@ function parseTelcelResponse(payload) {
       }
     }
   }
-
   if (!buckets.length) {
     throw new Error(payload?.message || payload?.error || "Respuesta Home Flow sin bolsas de datos");
   }
