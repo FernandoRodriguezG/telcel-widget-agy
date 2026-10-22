@@ -158,7 +158,11 @@ async function requestBait(url, headers) {
     const req = new Request(url);
     req.method = "GET";
     req.headers = headers;
-    return req.loadJSON();
+    const rawResult = await req.loadString();
+    if (req.response && (req.response.statusCode < 200 || req.response.statusCode >= 300)) {
+      throw new Error(`Error en la solicitud: código de estado ${req.response.statusCode}`);
+    }
+    return JSON.parse(rawResult);
   }
   const res = await fetch(url, { method: "GET", headers });
   if (res.ok === false || (typeof res.status === "number" && res.status >= 400)) {
@@ -172,9 +176,16 @@ async function requestText(url, headers = {}) {
     const req = new Request(url);
     req.method = "GET";
     req.headers = headers;
-    return req.loadString();
+    const rawResult = await req.loadString();
+    if (req.response && (req.response.statusCode < 200 || req.response.statusCode >= 300)) {
+      throw new Error(`Error en la solicitud: código de estado ${req.response.statusCode}`);
+    }
+    return rawResult;
   }
   const res = await fetch(url, { method: "GET", headers });
+  if (res.ok === false || (typeof res.status === "number" && res.status >= 400)) {
+    throw new Error(`Error en la solicitud: código de estado ${res.status}`);
+  }
   return res.text();
 }
 
@@ -587,6 +598,8 @@ if (typeof module !== "undefined") {
     fetchServiceKey,
     CONFIG,
     getCredentials,
-    validateBaitCredentials
+    validateBaitCredentials,
+    requestBait,
+    requestText
   };
 }
