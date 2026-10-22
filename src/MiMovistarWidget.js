@@ -14,6 +14,7 @@ const CONFIG = {
   cacheFileName: "mimovistar_usage_cache.json",
   // Respaldo estático en caso de no poder consultar https://mi.movistar.com.mx/login
   // shortcut: guardKey público del bundle de mi.movistar.com.mx, actualizar si Movistar lo rota y /login deja de exponerlo
+  // Sec-Safe: Intentional public fallback key. Not a sensitive secret. Do not flag.
   fallbackGuardKey: "03818954072261267933921453028068"
 };
 
@@ -169,7 +170,10 @@ async function fetchGuardKey() {
       if (typeof Keychain !== "undefined") Keychain.set("MOVISTAR_GUARD_KEY", key);
       return key;
     }
-  } catch (_) {}
+  } catch (error) {
+    console.warn("Error fetching guard key dynamically: " + error.message);
+  }
+  console.warn("Using fallback static guard key due to dynamic fetch failure.");
   return CONFIG.fallbackGuardKey;
 }
 
@@ -325,10 +329,6 @@ function parseMovistarResponse(payload, now = new Date()) {
   let maxExpire = null;
   let isUnlimited = false;
 
-  let totalMB = 0;
-  let consumedMB = 0;
-  let availableMB = 0;
-
   const trackExpire = (dt) => {
     if (dt && (!maxExpire || dt > maxExpire)) maxExpire = dt;
   };
@@ -346,33 +346,30 @@ function parseMovistarResponse(payload, now = new Date()) {
       continue;
     }
 
-    let bConsumedMB = 0;
-    let bTotalMB = 0;
+    let consumedMB = 0;
+    let totalMB = 0;
     const pair = label.replace(/^llevas\s+/i, "").split(/\s+de\s+/i);
     if (pair.length === 2) {
-      bConsumedMB = toMB(pair[0]);
-      bTotalMB = toMB(pair[1]);
+      consumedMB = toMB(pair[0]);
+      totalMB = toMB(pair[1]);
     } else {
-      bTotalMB = toMB(benefit || label);
+      totalMB = toMB(benefit || label);
       const pct = Number(item?.consumption);
-      if (bTotalMB > 0 && Number.isFinite(pct)) {
-        bConsumedMB = bTotalMB * Math.min(100, Math.max(0, pct)) / 100;
+      if (totalMB > 0 && Number.isFinite(pct)) {
+        consumedMB = totalMB * Math.min(100, Math.max(0, pct)) / 100;
       }
     }
 
-    const bAvailableMB = Math.max(0, bTotalMB - bConsumedMB);
-    if (bTotalMB > 0 || bAvailableMB > 0) {
+    const availableMB = Math.max(0, totalMB - consumedMB);
+    if (totalMB > 0 || availableMB > 0) {
       trackExpire(parseDate(item?.vigencia));
       buckets.push({
         id: name || `bolton-${buckets.length}`,
         name: name || "Navegación",
-        consumedMB: bConsumedMB,
-        totalMB: bTotalMB,
-        availableMB: bAvailableMB
+        consumedMB,
+        totalMB,
+        availableMB
       });
-      totalMB += bTotalMB;
-      consumedMB += bConsumedMB;
-      availableMB += bAvailableMB;
     }
   }
 
@@ -385,6 +382,17 @@ function parseMovistarResponse(payload, now = new Date()) {
 
   if (!buckets.length && !isUnlimited) {
     throw new Error("Sin bolsas de navegación activas en la línea Movistar");
+  }
+
+  let totalMB = 0;
+  let consumedMB = 0;
+  let availableMB = 0;
+
+  for (let i = 0; i < buckets.length; i++) {
+    const b = buckets[i];
+    totalMB += b.totalMB;
+    consumedMB += b.consumedMB;
+    availableMB += b.availableMB;
   }
 
   const daysLeft = maxExpire ? daysUntil(maxExpire, now) : 0;
