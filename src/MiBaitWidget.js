@@ -313,6 +313,9 @@ function createWidget(data) {
   return w;
 }
 
+/**
+ * Dibuja un arco grueso con extremos redondeados en DrawContext (compatible con Path de Scriptable)
+ */
 function drawArc(ctx, cx, cy, r, startAngle, endAngle, thickness, color) {
   if (endAngle - startAngle <= 0.005) return;
   const path = new Path();
@@ -335,6 +338,9 @@ function drawArc(ctx, cx, cy, r, startAngle, endAngle, thickness, color) {
   }
 }
 
+/**
+ * Dibuja el medidor semicircular con lo gastado en rojo (izquierda) y lo disponible en verde (derecha)
+ */
 function drawSemicircleGauge(spentRatio, mainLabel, subLabel) {
   const width = 360;
   const height = 182;
@@ -348,6 +354,7 @@ function drawSemicircleGauge(spentRatio, mainLabel, subLabel) {
   ctx.opaque = false;
   ctx.respectScreenScale = true;
 
+  // Riel completo semicircular (de PI a 2*PI)
   drawArc(ctx, cx, cy, r, Math.PI, 2 * Math.PI, thickness, COLORS.trackGray);
 
   if (spentRatio !== null && Number.isFinite(spentRatio)) {
@@ -355,19 +362,23 @@ function drawSemicircleGauge(spentRatio, mainLabel, subLabel) {
     const splitAngle = Math.PI + clamped * Math.PI;
     const gap = clamped > 0.04 && clamped < 0.96 ? 0.11 : 0;
 
+    // Segmento izquierdo: Gastado en Rojo
     if (clamped > 0.005) {
       drawArc(ctx, cx, cy, r, Math.PI, Math.max(Math.PI + 0.01, splitAngle - gap), thickness, COLORS.spentRed);
     }
+    // Segmento derecho: Disponible en Verde
     if (clamped < 0.995) {
       drawArc(ctx, cx, cy, r, Math.min(2 * Math.PI - 0.01, splitAngle + gap), 2 * Math.PI, thickness, COLORS.brandGreen);
     }
   }
 
+  // Texto principal centrado dentro del arco ("5.47 GB")
   ctx.setTextAlignedCenter();
   ctx.setFont(Font.boldSystemFont(50));
   ctx.setTextColor(COLORS.white);
   ctx.drawTextInRect(mainLabel, new Rect(30, 68, width - 60, 58));
 
+  // Subtítulo centrado debajo ("libres de 15.0 GB")
   ctx.setFont(Font.mediumSystemFont(22));
   ctx.setTextColor(COLORS.subtitleGray);
   ctx.drawTextInRect(subLabel, new Rect(30, 126, width - 60, 30));
