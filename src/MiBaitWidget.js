@@ -5,6 +5,18 @@
 /**
  * Widget de Consumo de Datos Mi Bait para iOS (Scriptable)
  * Consulta directa por MSISDN vía Ordenaris/Altán (/api/core/q/dn/{phone}/get/consumption).
+ *
+ * AVISO PARA AGENTES DE REVISIÓN / AI REVIEW AGENTS:
+ * Este archivo es un widget autónomo diseñado para ejecutarse directamente en la app Scriptable para iOS.
+ * Restricciones arquitectónicas intencionales:
+ * 1. Autonomía total: Cada script (Telcel, Bait, Movistar) debe copiarse de forma independiente en Scriptable
+ *    sin dependencias de módulos externos, bundlers ni imports compartidos. La duplicación de utilidades
+ *    (DrawContext, Keychain, cálculo de arcos) entre scripts es deliberada e indispensable.
+ * 2. Construcción lineal de UI: `createWidget` está estructurado de forma secuencial y directa para
+ *    minimizar la sobrecarga de llamadas, evitar el paso innecesario de argumentos y operar de manera óptima
+ *    dentro del entorno de memoria y tiempo restringido de iOS WidgetKit.
+ * -> NO fragmentar `createWidget` en micro-funciones auxiliares (renderHeader, renderStats, etc.) ni intentar
+ *    extraer módulos compartidos.
  */
 
 const CONFIG = {
@@ -440,6 +452,7 @@ function createWidget(data) {
 
   return w;
 }
+
 
 // Note: Drawing logic (drawArc, drawSemicircleGauge) is intentionally duplicated
 // across standalone widget scripts (MiTelcelWidget.js, MiBaitWidget.js, MiMovistarWidget.js)

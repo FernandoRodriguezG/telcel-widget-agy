@@ -126,6 +126,7 @@ assert(wMid.texts.includes("9 días"));
 assert(wMid.texts.includes("Corte 28 oct"));
 assert(wMid.texts.includes("● 9.50 GB (63%)"));
 assert(wMid.texts.includes("● 608 MB/d"));
+assert(wMid.texts.some(t => t.includes("Plan+Promo")));
 assert.deepEqual(wMid.images[0].texts, ["5.47 GB", "libres de 15.0 GB"]);
 assert.equal(wMid.images[0].arcs, 3); // track + red spent + green left
 
@@ -190,6 +191,7 @@ const wBait = createBaitWidget(baitRes);
 assert(wBait.texts.includes("Mi Bait"));
 assert(wBait.texts.includes("Vigencia 1 nov"));
 assert(wBait.texts.includes("12 días"));
+assert(wBait.texts.some(t => t.includes("Plan+Bono")));
 assert.deepEqual(wBait.images[0].texts, ["11.00 GB", "libres de 15.0 GB"]);
 
 // Verify null cutoffISO when no expire_date exists and loadCache daysLeft recalculation/clamping
@@ -572,6 +574,7 @@ assert(wMov.texts.includes("Mi Movistar"));
 assert(wMov.texts.includes("Vigencia 28 oct"));
 assert(wMov.texts.includes("7 días"));
 assert(wMov.texts.includes("● 7.50 GB (63%)"));
+assert(wMov.texts.some(t => t.includes("Plan+Bono")));
 assert.deepEqual(wMov.images[0].texts, ["4.50 GB", "libres de 12.0 GB"]);
 
 // Test cache loading for Movistar
