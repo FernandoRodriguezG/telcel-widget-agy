@@ -422,7 +422,8 @@ function createWidget(data) {
   w.url = "https://mi.movistar.com.mx/consumptions";
 
   if (!data) {
-    w.url = "scriptable:///run?scriptName=" + (typeof Script !== "undefined" ? encodeURIComponent(Script.name()) : "");
+    const sName = typeof Script !== "undefined" && Script.name();
+    w.url = sName ? `scriptable:///run?scriptName=${encodeURIComponent(sName)}` : "scriptable://";
     w.addSpacer();
     const iconTxt = w.addText("⚠️");
     iconTxt.font = Font.systemFont(24);

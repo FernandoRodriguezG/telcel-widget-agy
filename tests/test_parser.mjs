@@ -135,7 +135,10 @@ assert.equal(wEmpty.images[0].arcs, 1); // track only when totalMB == 0
 const wTelcelNull = createWidget(null);
 assert(wTelcelNull.texts.includes("⚠️"));
 assert(wTelcelNull.texts.some(t => t.includes("Abre Scriptable para revisar tu conexión o credenciales")));
-assert(wTelcelNull.url.startsWith("scriptable:///run?scriptName="));
+assert.equal(wTelcelNull.url, "scriptable://");
+globalThis.Script = { name: () => "Mi Telcel" };
+assert.equal(createWidget(null).url, "scriptable:///run?scriptName=Mi%20Telcel");
+delete globalThis.Script;
 
 // 1b. Test Mi Bait parser & widget
 const baitNow = new Date(2026, 9, 20, 10, 9); // Oct 20, 2026 10:09 local
@@ -427,7 +430,10 @@ assert(wBaitUnl.texts.some(t => t.startsWith("Bait Ilimitado • ⏱")));
 const wBaitNull = createBaitWidget(null);
 assert(wBaitNull.texts.includes("⚠️"));
 assert(wBaitNull.texts.some(t => t.includes("Abre Scriptable para revisar tu conexión o número")));
-assert(wBaitNull.url.startsWith("scriptable:///run?scriptName="));
+assert.equal(wBaitNull.url, "scriptable://");
+globalThis.Script = { name: () => "Mi Bait" };
+assert.equal(createBaitWidget(null).url, "scriptable:///run?scriptName=Mi%20Bait");
+delete globalThis.Script;
 
 // 1d. Test Mi Movistar parser, AES-256-GCM decryptor & widget
 const movNow = new Date(2026, 9, 21, 10, 0); // Oct 21, 2026 10:00 local
@@ -589,7 +595,10 @@ assert(wMovUnl.texts.includes("● Datos Ilimitado"));
 const wMovNull = createMovistarWidget(null);
 assert(wMovNull.texts.includes("⚠️"));
 assert(wMovNull.texts.some(t => t.includes("Abre Scriptable para iniciar sesión de nuevo")));
-assert(wMovNull.url.startsWith("scriptable:///run?scriptName="));
+assert.equal(wMovNull.url, "scriptable://");
+globalThis.Script = { name: () => "Mi Movistar" };
+assert.equal(createMovistarWidget(null).url, "scriptable:///run?scriptName=Mi%20Movistar");
+delete globalThis.Script;
 
 // Test epoch timestamp fallback in saldos.topupsBalanceExpirationDate
 const movEpoch = parseMovistarResponse({
