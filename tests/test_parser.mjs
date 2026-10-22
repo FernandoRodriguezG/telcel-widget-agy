@@ -50,7 +50,7 @@ globalThis.ListWidget = class {
   }
 };
 const require = createRequire(import.meta.url);
-const { parseTelcelResponse, createWidget, loadCache, getCredentials } = require("../src/MiTelcelWidget.js");
+const { parseTelcelResponse, createWidget, loadCache, getCredentials, requestTelcel } = require("../src/MiTelcelWidget.js");
 const { fetchBaitData, parseBaitResponse, createWidget: createBaitWidget, loadCache: loadBaitCache, fetchServiceKey: fetchBaitServiceKey, CONFIG: baitConfig } = require("../src/MiBaitWidget.js");
 const {
   fetchMovistarData,
@@ -268,6 +268,57 @@ try {
   console.warn = originalConsoleWarn;
   if (originalEnvKey !== undefined) {
     process.env.BAIT_SERVICE_KEY = originalEnvKey;
+  }
+}
+
+// Test requestTelcel error handling in Node (fetch) environment
+{
+  const origFetch = globalThis.fetch;
+  const origRequest = globalThis.Request;
+  globalThis.fetch = async () => ({ ok: false, status: 500 });
+  globalThis.Request = undefined;
+  try {
+    await assert.rejects(
+      () => requestTelcel("https://test.com", "GET", {}, null, true),
+      /Error en la solicitud: código de estado 500\. Por favor, inténtalo más tarde\./
+    );
+  } finally {
+    globalThis.fetch = origFetch;
+    if (origRequest !== undefined) {
+      globalThis.Request = origRequest;
+    } else {
+      delete globalThis.Request;
+    }
+  }
+}
+
+// Test requestTelcel error handling in Scriptable (Request) environment
+{
+  const origRequest = globalThis.Request;
+  globalThis.Request = class {
+    constructor(url) {
+      this.url = url;
+    }
+    async loadString() {
+      this.response = { statusCode: 404 };
+      return "";
+    }
+    async load() {
+      this.response = { statusCode: 404 };
+      return "";
+    }
+  };
+  try {
+    await assert.rejects(
+      () => requestTelcel("https://test.com", "GET", {}, null, true),
+      /Error en la solicitud: código de estado 404\. Por favor, inténtalo más tarde\./
+    );
+  } finally {
+    if (origRequest !== undefined) {
+      globalThis.Request = origRequest;
+    } else {
+      delete globalThis.Request;
+    }
   }
 }
 
