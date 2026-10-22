@@ -163,11 +163,7 @@ public actor TelcelNetworkService {
                 ]
                 SecItemDelete(query as CFDictionary)
 
-                var attrsToAdd = query
-                attrsToAdd[kSecValueData] = value.data(using: .utf8)!
-                attrsToAdd[kSecAttrAccessible] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-                let status = SecItemAdd(attrsToAdd as CFDictionary, nil)
-                if status != errSecSuccess {
+                if !setKeychain(key, value) {
                     allSucceeded = false
                 }
             }
