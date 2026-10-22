@@ -58,16 +58,18 @@ public struct MiTelcelWidgetView: View {
         VStack(alignment: .leading, spacing: 0) {
             MiTelcelWidgetCardContent(entry: entry)
 
-            Spacer(minLength: 8)
+            if entry != .errorFallback {
+                Spacer(minLength: 8)
 
-            Button(intent: RefreshTelcelUsageIntent()) {
-                Text(entry.footerText)
-                    .font(.system(size: 11, weight: .regular))
-                    .foregroundStyle(Color(red: 0.60, green: 0.60, blue: 0.62))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
+                Button(intent: RefreshTelcelUsageIntent()) {
+                    Text(entry.footerText)
+                        .font(.system(size: 11, weight: .regular))
+                        .foregroundStyle(Color(red: 0.60, green: 0.60, blue: 0.62))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
         }
         .containerBackground(Color(red: 0.07, green: 0.07, blue: 0.07), for: .widget)
     }

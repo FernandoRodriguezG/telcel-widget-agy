@@ -525,30 +525,41 @@ public struct MiTelcelWidgetCardContent: View {
     }
 
     public var body: some View {
-        let gap = entry.usageRatio > 0.04 && entry.usageRatio < 0.96 ? 0.03 : 0.0
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(alignment: .center) {
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("Mi Telcel")
-                        .font(.system(size: 11, weight: .bold))
-                        .foregroundStyle(.white)
-                    if !entry.cutoffDate.isEmpty {
-                        Text(entry.totalMB > 0 ? "Corte \(entry.shortCutoffDate)" : entry.cutoffDate)
-                            .font(.system(size: 9.5, weight: .regular))
-                            .foregroundStyle(subtitleGray)
-                            .lineLimit(1)
+        if entry == .errorFallback {
+            VStack(alignment: .center, spacing: 8) {
+                Text("⚠️")
+                    .font(.system(size: 24))
+                Text("No pudimos cargar tus datos. Toca para revisar tu conexión o credenciales.")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            let gap = entry.usageRatio > 0.04 && entry.usageRatio < 0.96 ? 0.03 : 0.0
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(alignment: .center) {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("Mi Telcel")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundStyle(.white)
+                        if !entry.cutoffDate.isEmpty {
+                            Text(entry.totalMB > 0 ? "Corte \(entry.shortCutoffDate)" : entry.cutoffDate)
+                                .font(.system(size: 9.5, weight: .regular))
+                                .foregroundStyle(subtitleGray)
+                                .lineLimit(1)
+                        }
+                    }
+                    Spacer()
+                    if entry.totalMB > 0 {
+                        Text("\(entry.daysLeft) \(entry.daysLeft == 1 ? "día" : "días")")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundStyle(daysColor)
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 3)
+                            .background(pillBg, in: RoundedRectangle(cornerRadius: 7))
                     }
                 }
-                Spacer()
-                if entry.totalMB > 0 {
-                    Text("\(entry.daysLeft) \(entry.daysLeft == 1 ? "día" : "días")")
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundStyle(daysColor)
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 3)
-                        .background(pillBg, in: RoundedRectangle(cornerRadius: 7))
-                }
-            }
 
             ZStack(alignment: .bottom) {
                 Circle()
@@ -597,6 +608,7 @@ public struct MiTelcelWidgetCardContent: View {
             .font(.system(size: 9.5, weight: .semibold))
             .lineLimit(1)
             .minimumScaleFactor(0.75)
+            }
         }
     }
 }
