@@ -116,20 +116,65 @@ public actor TelcelNetworkService {
         return String(data: data, encoding: .utf8)
     }
 
-    private static func setKeychain(_ key: String, _ value: String) {
+    @discardableResult
+    private static func setKeychain(_ key: String, _ value: String) -> Bool {
         let query: [CFString: Any] = [
             kSecClass: kSecClassGenericPassword,
             kSecAttrService: "mx.mitelcel.widget",
             kSecAttrAccount: key
         ]
-        SecItemDelete(query as CFDictionary)
-        guard !value.isEmpty, let data = value.data(using: .utf8) else { return }
-        var attrs = query
-        attrs[kSecValueData] = data
-        SecItemAdd(attrs as CFDictionary, nil)
+
+        if value.isEmpty {
+            SecItemDelete(query as CFDictionary)
+            return true
+        }
+
+        guard let data = value.data(using: .utf8) else { return false }
+
+        let attrsToUpdate: [CFString: Any] = [
+            kSecValueData: data
+        ]
+
+        let updateStatus = SecItemUpdate(query as CFDictionary, attrsToUpdate as CFDictionary)
+        if updateStatus == errSecSuccess { return true }
+
+        if updateStatus == errSecItemNotFound {
+            var attrsToAdd = query
+            attrsToAdd[kSecValueData] = data
+            attrsToAdd[kSecAttrAccessible] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+            return SecItemAdd(attrsToAdd as CFDictionary, nil) == errSecSuccess
+        }
+
+        return false
+    }
+
+    private static func migrateKeychainAccessibilityIfNeeded() {
+        let keys = ["telcel_phone", "telcel_pass"]
+        let migratedKey = "keychain_accessibility_migrated_v1"
+        if sharedDefaults.bool(forKey: migratedKey) { return }
+
+        var allSucceeded = true
+        for key in keys {
+            if let value = getKeychain(key) {
+                let query: [CFString: Any] = [
+                    kSecClass: kSecClassGenericPassword,
+                    kSecAttrService: "mx.mitelcel.widget",
+                    kSecAttrAccount: key
+                ]
+                SecItemDelete(query as CFDictionary)
+
+                if !setKeychain(key, value) {
+                    allSucceeded = false
+                }
+            }
+        }
+        if allSucceeded {
+            sharedDefaults.set(true, forKey: migratedKey)
+        }
     }
 
     public static func loadCredentials() -> (phone: String, password: String) {
+        migrateKeychainAccessibilityIfNeeded()
         let defaults = sharedDefaults
         let env = ProcessInfo.processInfo.environment
         let rawPhone = getKeychain("telcel_phone") ?? defaults.string(forKey: "telcel_phone") ?? env["TELCEL_PHONE"] ?? ""
