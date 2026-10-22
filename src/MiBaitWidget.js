@@ -95,6 +95,39 @@ async function requestBait(url, headers) {
   return res.json();
 }
 
+async function requestText(url, headers = {}) {
+  if (typeof Request !== "undefined") {
+    const req = new Request(url);
+    req.method = "GET";
+    req.headers = headers;
+    return req.loadString();
+  }
+  const res = await fetch(url, { method: "GET", headers });
+  return res.text();
+}
+
+async function fetchServiceKey() {
+  if (typeof process !== "undefined" && process.env.BAIT_SERVICE_KEY) {
+    return process.env.BAIT_SERVICE_KEY;
+  }
+
+  try {
+    const html = await requestText("https://mibait.com");
+    const mainJsMatch = html.match(/src="(main\.[a-f0-9]+\.js)"/);
+    if (mainJsMatch) {
+      const jsContent = await requestText(`https://mibait.com/${mainJsMatch[1]}`);
+      const keyMatch = jsContent.match(/xOrdService:"([a-f0-9]{32})"/);
+      if (keyMatch) {
+        return keyMatch[1];
+      }
+    }
+  } catch (error) {
+    console.warn("No se pudo obtener la llave dinámicamente de mibait.com: " + error.message);
+  }
+
+  return CONFIG.ordServiceKey;
+}
+
 async function fetchBaitData(creds) {
   const raw = creds || await getCredentials();
   const phone = String(raw?.phone || "").replace(/\D/g, "").slice(-10);
@@ -102,11 +135,13 @@ async function fetchBaitData(creds) {
     throw new Error("Configura un número Bait válido a 10 dígitos en Scriptable.");
   }
 
+  const ordServiceKey = await fetchServiceKey();
+
   const json = await requestBait(
     `https://mibait.com/api/core/q/dn/${encodeURIComponent(phone)}/get/consumption`,
     {
       "Accept": "application/json",
-      "x-ord-service": CONFIG.ordServiceKey
+      "x-ord-service": ordServiceKey
     }
   );
   return parseBaitResponse(json);
