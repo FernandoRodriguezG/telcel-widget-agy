@@ -225,6 +225,17 @@ globalThis.FileManager = {
 };
 assert.equal(loadCache(), null);
 
+// Mock FileManager.local() to have fileExists return false
+globalThis.FileManager = {
+  local: () => ({
+    documentsDirectory: () => "/tmp",
+    joinPath: (a, b) => `${a}/${b}`,
+    fileExists: () => false,
+    readString: () => { throw new Error("Should not be called"); }
+  })
+};
+assert.equal(loadCache(), null);
+
 // Restore FileManager mock
 globalThis.FileManager = originalFileManager;
 
