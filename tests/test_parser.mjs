@@ -272,6 +272,53 @@ globalThis.FileManager = {
 };
 assert.equal(loadCache(), null);
 
+// Mock FileManager.local() to return empty string (JSON.parse will throw)
+globalThis.FileManager = {
+  local: () => ({
+    documentsDirectory: () => "/tmp",
+    joinPath: (a, b) => `${a}/${b}`,
+    fileExists: () => true,
+    readString: () => ""
+  })
+};
+assert.equal(loadCache(), null);
+
+// Mock FileManager.local() to return "null" (valid JSON, but setting fromCache on null throws)
+globalThis.FileManager = {
+  local: () => ({
+    documentsDirectory: () => "/tmp",
+    joinPath: (a, b) => `${a}/${b}`,
+    fileExists: () => true,
+    readString: () => "null"
+  })
+};
+assert.equal(loadCache(), null);
+
+// Mock FileManager.local() to return primitive number (valid JSON, but setting fromCache silently succeeds in non-strict mode without modifying the primitive type - loadCache should handle this and return null)
+globalThis.FileManager = {
+  local: () => ({
+    documentsDirectory: () => "/tmp",
+    joinPath: (a, b) => `${a}/${b}`,
+    fileExists: () => true,
+    readString: () => "42"
+  })
+};
+assert.equal(loadCache(), null);
+
+// Mock FileManager.local() to return valid JSON object (Happy path cache hit)
+globalThis.FileManager = {
+  local: () => ({
+    documentsDirectory: () => "/tmp",
+    joinPath: (a, b) => `${a}/${b}`,
+    fileExists: () => true,
+    readString: () => '{"cutoffISO": "2026-10-28", "totalMB": 100}'
+  })
+};
+const happyCache = loadCache();
+assert.equal(happyCache.totalMB, 100);
+assert.equal(happyCache.cutoffISO, "2026-10-28");
+assert.equal(happyCache.fromCache, true);
+
 // Restore FileManager mock
 globalThis.FileManager = originalFileManager;
 
