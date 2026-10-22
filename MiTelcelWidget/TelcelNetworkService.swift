@@ -306,7 +306,7 @@ public actor TelcelNetworkService {
     public static func parseHomeFlowJSON(_ data: Data, now: Date = .now) throws -> TelcelUsageEntry {
         let root = try JSONSerialization.jsonObject(with: data)
         var byId: [String: [String: Any]] = [:]
-        var suffixes: [String] = []
+        var suffixesSet = Set<String>()
 
         func walk(_ node: Any) {
             if let dict = node as? [String: Any] {
@@ -314,8 +314,8 @@ public actor TelcelNetworkService {
                     byId[id] = cfg
                     if id.hasPrefix("tabs-plans-v2-plan-name-") {
                         let sfx = String(id.dropFirst("tabs-plans-v2-plan-name-".count))
-                        if !sfx.isEmpty, sfx.allSatisfy({ $0.isNumber || $0 == "-" }), !suffixes.contains(sfx) {
-                            suffixes.append(sfx)
+                        if !sfx.isEmpty, sfx.allSatisfy({ $0.isNumber || $0 == "-" }) {
+                            suffixesSet.insert(sfx)
                         }
                     }
                 }
@@ -325,7 +325,7 @@ public actor TelcelNetworkService {
             }
         }
         walk(root)
-        suffixes.sort { $0.localizedStandardCompare($1) == .orderedAscending }
+        let suffixes = suffixesSet.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
 
         func toDouble(_ raw: Any?) -> Double? {
             guard let raw else { return nil }
