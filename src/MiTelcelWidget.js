@@ -246,16 +246,31 @@ async function fetchTelcelData(creds) {
 function parseTelcelResponse(payload) {
   const byId = {};
   const suffixesSet = new Set();
-  (function walk(node) {
-    if (!node || typeof node !== "object") return;
+
+  const stack = [payload];
+
+  while (stack.length > 0) {
+    const node = stack.pop();
+    if (!node || typeof node !== "object") continue;
+
     if (typeof node.id === "string" && node.config) {
       byId[node.id] = node.config;
-      const m = node.id.match(/^tabs-plans-v2-plan-name-(\d+-\d+-\d+)$/);
-      if (m) suffixesSet.add(m[1]);
+      if (node.id.startsWith("tabs-plans-v2-plan-name-")) {
+        suffixesSet.add(node.id.slice(24));
+      }
     }
-    if (Array.isArray(node.children)) node.children.forEach(walk);
-    if (node.blocks) walk(node.blocks);
-  })(payload);
+
+    const children = node.children;
+    if (Array.isArray(children)) {
+      for (let i = children.length - 1; i >= 0; i--) {
+        stack.push(children[i]);
+      }
+    }
+    if (node.blocks) {
+      stack.push(node.blocks);
+    }
+  }
+
   const suffixes = Array.from(suffixesSet).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
 
   const toMB = (val, unit) => {
@@ -301,26 +316,28 @@ function parseTelcelResponse(payload) {
     };
   };
 
-  const buckets = (suffixes.length ? suffixes : ["0-0-0"])
-    .map(parseBucket)
-    .filter(b => b.totalMB > 0 || b.availableMB > 0);
-  if (!buckets.length) {
-    throw new Error(payload?.message || payload?.error || "Respuesta Home Flow sin bolsas de datos");
-  }
-
   let consumedMB = 0;
   let totalMB = 0;
   let availableMB = 0;
   let daysLeft = null;
+  const buckets = [];
 
-  for (let i = 0; i < buckets.length; i++) {
-    const b = buckets[i];
-    consumedMB += b.consumedMB;
-    totalMB += b.totalMB;
-    availableMB += b.availableMB;
-    if (daysLeft === null && b.daysLeft !== null) {
-      daysLeft = b.daysLeft;
+  const bucketKeys = suffixes.length ? suffixes : ["0-0-0"];
+  for (let i = 0; i < bucketKeys.length; i++) {
+    const b = parseBucket(bucketKeys[i]);
+    if (b.totalMB > 0 || b.availableMB > 0) {
+      buckets.push(b);
+      consumedMB += b.consumedMB;
+      totalMB += b.totalMB;
+      availableMB += b.availableMB;
+      if (daysLeft === null && b.daysLeft !== null) {
+        daysLeft = b.daysLeft;
+      }
     }
+  }
+
+  if (!buckets.length) {
+    throw new Error(payload?.message || payload?.error || "Respuesta Home Flow sin bolsas de datos");
   }
 
   if (daysLeft === null) {
