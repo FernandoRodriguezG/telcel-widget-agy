@@ -38,15 +38,22 @@ const MONTHS_ES = [
 ];
 
 async function validateBaitCredentials(phone) {
-  const ordServiceKey = await fetchServiceKey();
-  const json = await requestBait(
-    `https://mibait.com/api/core/q/dn/${encodeURIComponent(phone)}/get/consumption`,
-    {
-      "Accept": "application/json",
-      "x-ord-service": ordServiceKey
+  try {
+    const ordServiceKey = await fetchServiceKey();
+    const json = await requestBait(
+      `https://mibait.com/api/core/q/dn/${encodeURIComponent(phone)}/get/consumption`,
+      {
+        "Accept": "application/json",
+        "x-ord-service": ordServiceKey
+      }
+    );
+    return Boolean(json?.success && Array.isArray(json?.data));
+  } catch (err) {
+    if (String(err?.message || "").includes("400") || String(err?.message || "").includes("401") || String(err?.message || "").includes("404")) {
+      return false;
     }
-  );
-  return Boolean(json?.success && Array.isArray(json?.data));
+    throw err;
+  }
 }
 
 async function getCredentials(validator = validateBaitCredentials) {
@@ -141,6 +148,9 @@ async function requestBait(url, headers) {
     return req.loadJSON();
   }
   const res = await fetch(url, { method: "GET", headers });
+  if (res.ok === false || (typeof res.status === "number" && res.status >= 400)) {
+    throw new Error(`Error en la solicitud: código de estado ${res.status}`);
+  }
   return res.json();
 }
 

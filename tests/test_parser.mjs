@@ -987,6 +987,12 @@ const testNetworkValidators = async () => {
     globalThis.fetch = async () => ({ ok: true, json: async () => ({ error: { description: "bad" } }) });
     assert.equal(await validateTelcelCredentials("5512345678", "wrong_pw"), false);
 
+    globalThis.fetch = async () => ({ ok: false, status: 401, json: async () => ({ error: "unauthorized" }) });
+    assert.equal(await validateTelcelCredentials("5512345678", "wrong_pw"), false);
+
+    globalThis.fetch = async () => ({ ok: false, status: 400, json: async () => ({ error: "bad request" }) });
+    assert.equal(await validateTelcelCredentials("5512345678", "wrong_pw"), false);
+
     globalThis.fetch = async () => { throw new Error("Network offline"); };
     await assert.rejects(() => validateTelcelCredentials("5512345678", "pw"), /Network offline/);
 
@@ -1007,6 +1013,22 @@ const testNetworkValidators = async () => {
     };
     assert.equal(await validateBaitCredentials("5512345678"), false);
 
+    globalThis.fetch = async (url) => {
+      if (url.includes("/get/consumption")) {
+        return { ok: false, status: 404, json: async () => ({ error: "Not found" }) };
+      }
+      return { ok: true, text: async () => "ordKey" };
+    };
+    assert.equal(await validateBaitCredentials("5512345678"), false);
+
+    globalThis.fetch = async (url) => {
+      if (url.includes("/get/consumption")) {
+        return { ok: false, status: 401, json: async () => ({ error: "Unauthorized" }) };
+      }
+      return { ok: true, text: async () => "ordKey" };
+    };
+    assert.equal(await validateBaitCredentials("5512345678"), false);
+
     const origWarn = console.warn;
     console.warn = () => {};
     globalThis.fetch = async () => { throw new Error("Network offline"); };
@@ -1018,6 +1040,9 @@ const testNetworkValidators = async () => {
     assert.equal(await validateMovistarCredentials("test_pid"), true);
 
     globalThis.fetch = async () => ({ ok: false, status: 401, json: async () => ({ response: "401" }) });
+    assert.equal(await validateMovistarCredentials("test_pid"), false);
+
+    globalThis.fetch = async () => ({ ok: false, status: 403, json: async () => ({ response: "403" }) });
     assert.equal(await validateMovistarCredentials("test_pid"), false);
 
     globalThis.fetch = async () => { throw new Error("Network offline"); };

