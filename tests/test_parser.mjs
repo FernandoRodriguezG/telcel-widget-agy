@@ -51,7 +51,7 @@ globalThis.ListWidget = class {
 };
 const require = createRequire(import.meta.url);
 const { parseTelcelResponse, createWidget, loadCache, getCredentials, requestTelcel } = require("../src/MiTelcelWidget.js");
-const { fetchBaitData, parseBaitResponse, createWidget: createBaitWidget, loadCache: loadBaitCache, fetchServiceKey: fetchBaitServiceKey, CONFIG: baitConfig } = require("../src/MiBaitWidget.js");
+const { fetchBaitData, parseBaitResponse, createWidget: createBaitWidget, loadCache: loadBaitCache, fetchServiceKey: fetchBaitServiceKey, CONFIG: baitConfig, getCredentials: getBaitCredentials } = require("../src/MiBaitWidget.js");
 const {
   fetchMovistarData,
   parseMovistarResponse,
@@ -732,6 +732,74 @@ const runGetCredentialsTest = async () => {
 };
 await runGetCredentialsTest();
 
+
+
+// 1f. Test Bait getCredentials
+const testBaitCredentials = async () => {
+  const origKeychain = globalThis.Keychain;
+  const origConfig = globalThis.config;
+  const origAlert = globalThis.Alert;
+  const origBaitPhone = baitConfig.phone;
+
+  try {
+    // Scenario 1: Keychain Happy Path
+    globalThis.Keychain = { contains: (k) => k === "BAIT_PHONE" };
+    globalThis.Keychain.get = (k) => k === "BAIT_PHONE" ? "5511223344" : null;
+    globalThis.config = { runsInWidget: true };
+    let creds = await getBaitCredentials();
+    assert.equal(creds.phone, "5511223344");
+
+    // Scenario 2: Number Normalization from CONFIG
+    globalThis.Keychain.contains = () => false;
+    baitConfig.phone = "+52 (55) 1234-5678";
+    creds = await getBaitCredentials();
+    assert.equal(creds.phone, "5512345678");
+
+    // Scenario 3: Widget Mode Bypass
+    baitConfig.phone = "123";
+    globalThis.config = { runsInWidget: true };
+    creds = await getBaitCredentials();
+    assert.equal(creds.phone, "123");
+
+    // Scenario 4 & 5: Interactive Mode
+    globalThis.config = { runsInWidget: false };
+    baitConfig.phone = "invalid";
+
+    let alertAction = 0;
+    let savedKeychain = {};
+
+    globalThis.Alert = class {
+      constructor() { this.textFields = []; }
+      addTextField(t, v) { this.textFields.push(v); }
+      addAction() {}
+      addCancelAction() {}
+      async presentAlert() { return alertAction; }
+      textFieldValue() { return "+52 (55) 9988-7766"; }
+    };
+
+    globalThis.Keychain.set = (k, v) => { savedKeychain[k] = v; };
+
+    // Scenario 4: Interactive Save
+    alertAction = 0; // Return index of first action (Guardar)
+    creds = await getBaitCredentials();
+    assert.equal(creds.phone, "5599887766");
+    assert.equal(savedKeychain["BAIT_PHONE"], "5599887766");
+
+    // Scenario 5: Interactive Cancel
+    alertAction = 1; // Return index of second action (Cancelar)
+    savedKeychain = {};
+    creds = await getBaitCredentials();
+    assert.equal(creds.phone, "");
+    assert.equal(savedKeychain["BAIT_PHONE"], undefined);
+  } finally {
+    globalThis.Keychain = origKeychain;
+    globalThis.config = origConfig;
+    globalThis.Alert = origAlert;
+    baitConfig.phone = origBaitPhone;
+  }
+};
+
+await testBaitCredentials();
 
 // 2. Test Swift parser with the same fixture, error rejection, phone normalization & footerText
 const swiftSource = readFileSync("MiTelcelWidget/TelcelNetworkService.swift", "utf8");

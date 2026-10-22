@@ -484,5 +484,5 @@ if (typeof Script !== "undefined") {
   main();
 }
 if (typeof module !== "undefined") {
-  module.exports = { fetchBaitData, parseBaitResponse, createWidget, loadCache, fetchServiceKey, CONFIG };
+  module.exports = { fetchBaitData, parseBaitResponse, createWidget, loadCache, fetchServiceKey, CONFIG, getCredentials };
 }
