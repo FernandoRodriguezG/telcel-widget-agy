@@ -51,7 +51,7 @@ globalThis.ListWidget = class {
 };
 const require = createRequire(import.meta.url);
 const { parseTelcelResponse, createWidget, loadCache } = require("../src/MiTelcelWidget.js");
-const { parseBaitResponse, createWidget: createBaitWidget, loadCache: loadBaitCache } = require("../src/MiBaitWidget.js");
+const { parseBaitResponse, createWidget: createBaitWidget, loadCache: loadBaitCache, fetchServiceKey: fetchBaitServiceKey, CONFIG: baitConfig } = require("../src/MiBaitWidget.js");
 const {
   fetchMovistarData,
   parseMovistarResponse,
@@ -203,6 +203,42 @@ assert.equal(cachedLater.daysLeft, 4);
 const cachedExpired = loadBaitCache(new Date(2026, 10, 5, 8, 0)); // Past Nov 1 -> clamped to 0
 assert.equal(cachedExpired.fromCache, true);
 assert.equal(cachedExpired.daysLeft, 0);
+
+// Test Mi Bait dynamic service key fetch fallback
+const originalFetch = globalThis.fetch;
+let consoleWarnCalled = false;
+const originalConsoleWarn = console.warn;
+
+console.warn = (msg) => {
+  if (msg.includes("No se pudo obtener la llave dinámicamente de mibait.com")) {
+    consoleWarnCalled = true;
+  } else {
+    originalConsoleWarn(msg);
+  }
+};
+
+globalThis.fetch = async (url) => {
+  if (url === "https://mibait.com") {
+    throw new Error("Simulated network failure");
+  }
+  return originalFetch(url);
+};
+
+// Temporarily clear environment variable if it exists to test the fetch/fallback path
+const originalEnvKey = process.env.BAIT_SERVICE_KEY;
+delete process.env.BAIT_SERVICE_KEY;
+
+try {
+  const serviceKey = await fetchBaitServiceKey();
+  assert.equal(serviceKey, baitConfig.ordServiceKey, "Should fallback to hardcoded ordServiceKey on fetch failure");
+  assert.equal(consoleWarnCalled, true, "Should log a warning when fetch fails");
+} finally {
+  globalThis.fetch = originalFetch;
+  console.warn = originalConsoleWarn;
+  if (originalEnvKey !== undefined) {
+    process.env.BAIT_SERVICE_KEY = originalEnvKey;
+  }
+}
 
 // 1c. Test Mi Telcel loadCache failure scenarios
 // Mock FileManager.local() to throw an exception
