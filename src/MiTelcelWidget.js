@@ -509,5 +509,5 @@ if (typeof Script !== "undefined") {
   main();
 }
 if (typeof module !== "undefined") {
-  module.exports = { fetchTelcelData, parseTelcelResponse, createWidget };
+  module.exports = { fetchTelcelData, parseTelcelResponse, createWidget, loadCache };
 }

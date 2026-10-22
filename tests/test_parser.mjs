@@ -50,7 +50,7 @@ globalThis.ListWidget = class {
   }
 };
 const require = createRequire(import.meta.url);
-const { parseTelcelResponse, createWidget } = require("../src/MiTelcelWidget.js");
+const { parseTelcelResponse, createWidget, loadCache } = require("../src/MiTelcelWidget.js");
 const { parseBaitResponse, createWidget: createBaitWidget, loadCache: loadBaitCache } = require("../src/MiBaitWidget.js");
 const { formatSummary } = await import("../android/mitelcel_widget.mjs");
 
@@ -194,6 +194,30 @@ const cachedExpired = loadBaitCache(new Date(2026, 10, 5, 8, 0)); // Past Nov 1 
 assert.equal(cachedExpired.fromCache, true);
 assert.equal(cachedExpired.daysLeft, 0);
 
+// 1c. Test Mi Telcel loadCache failure scenarios
+// Mock FileManager.local() to throw an exception
+const originalFileManager = globalThis.FileManager;
+globalThis.FileManager = {
+  local: () => {
+    throw new Error("Simulated FileManager exception");
+  }
+};
+assert.equal(loadCache(), null);
+
+// Mock FileManager.local() to return invalid JSON
+globalThis.FileManager = {
+  local: () => ({
+    documentsDirectory: () => "/tmp",
+    joinPath: (a, b) => `${a}/${b}`,
+    fileExists: () => true,
+    readString: () => "{ invalid json ]"
+  })
+};
+assert.equal(loadCache(), null);
+
+// Restore FileManager mock
+globalThis.FileManager = originalFileManager;
+
 // Standard 2-bucket Fair-Use (BestEffort + Throttling) unlimited plan with expired cutoff
 const baitUnlimited = parseBaitResponse({
   success: true,
@@ -232,5 +256,13 @@ assert(TelcelUsageEntry.errorFallback.cutoffDate == "Verificar cuenta")
 print("✅ Swift & JS parser tests passed!")
 `;
 
-const out = execFileSync("swift", ["-"], { input: swiftTest, encoding: "utf8" });
-console.log(out.trim());
+try {
+  const out = execFileSync("swift", ["-"], { input: swiftTest, encoding: "utf8" });
+  console.log(out.trim());
+} catch (error) {
+  if (error.code === 'ENOENT') {
+    console.warn("⚠️ Swift binary not found. Skipping Swift parser tests.");
+  } else {
+    throw error;
+  }
+}
