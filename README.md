@@ -97,15 +97,20 @@ Para usuarios con Mac y Xcode que deseen compilar la app y extensión nativa:
 ## Método 3: Prototipo para Android (Termux:Widget / KWGT)
 
 > [!WARNING]
-> **Nota:** Como no cuento con un teléfono Android físico, **este prototipo de Android no ha sido probado**. Comparte exactamente el mismo parser y flujo de red de iOS (`src/MiTelcelWidget.js`), pero se incluye únicamente como referencia experimental.
+> **Nota:** Como no cuento con un teléfono Android físico, **los scripts de Android no han sido probados en hardware real**. Comparten exactamente los mismos parsers y flujos de red de iOS (`src/MiTelcelWidget.js`, `src/MiBaitWidget.js` y `src/MiMovistarWidget.js`), pero se incluyen únicamente como referencia experimental.
 
 1. Instala **Termux** y **Termux:Widget** desde **F-Droid**, luego instala Node.js y Git:
    ```sh
    pkg update && pkg install -y nodejs git
+   termux-setup-storage
    ```
-2. Clona este repositorio en Termux y configura tu archivo `.env` (`TELCEL_PHONE` y `TELCEL_PASS`).
-3. Copia [`android/shortcuts_mitelcel.sh`](android/shortcuts_mitelcel.sh) a `~/.shortcuts/MiTelcel` para usar con **Termux:Widget**, o lee el archivo `/sdcard/Download/mitelcel_widget.json` generado por [`android/mitelcel_widget.mjs`](android/mitelcel_widget.mjs) desde **KWGT**.
-4. Consulta la guía completa en [`android/README.md`](android/README.md).
+2. Clona este repositorio en Termux y configura tu archivo `.env` (credenciales para Telcel, Bait y/o Movistar):
+   ```sh
+   cp .env.example .env
+   nano .env
+   ```
+3. Copia los lanzadores que necesites a `~/.shortcuts/` para usar con **Termux:Widget** (`MiTelcel`, `MiBait`, `MiMovistar`), o lee los archivos JSON correspondientes generados en `/sdcard/Download/` (`mitelcel_widget.json`, `mibait_widget.json`, `mimovistar_widget.json`) desde **KWGT**.
+4. Consulta la guía completa de configuración y fórmulas KWGT en [`android/README.md`](android/README.md).
 
 ---
 
@@ -146,9 +151,13 @@ Puedes probar las llamadas reales y verificar el formato devuelto por Mi Telcel 
 ├── tests/
 │   └── test_parser.mjs             # Suite de pruebas unitarias (Telcel, Bait, Movistar, Keychain, UI y Swift)
 ├── android/
-│   ├── mitelcel_widget.mjs         # Prototipo Node.js para Termux / KWGT (Android)
-│   ├── shortcuts_mitelcel.sh       # Lanzador para Termux:Widget (~/.shortcuts)
-│   └── README.md                   # Guía de configuración en Android (sin probar)
+│   ├── mitelcel_widget.mjs         # Prototipo Node.js para Mi Telcel (Termux / KWGT)
+│   ├── mibait_widget.mjs           # Prototipo Node.js para Mi Bait (Termux / KWGT)
+│   ├── mimovistar_widget.mjs       # Prototipo Node.js para Mi Movistar (Termux / KWGT)
+│   ├── shortcuts_mitelcel.sh       # Lanzador Telcel para Termux:Widget (~/.shortcuts)
+│   ├── shortcuts_mibait.sh         # Lanzador Bait para Termux:Widget (~/.shortcuts)
+│   ├── shortcuts_mimovistar.sh     # Lanzador Movistar para Termux:Widget (~/.shortcuts)
+│   └── README.md                   # Guía de configuración y fórmulas KWGT en Android
 ├── MiTelcelApp/
 │   └── MiTelcelApp.swift           # App contenedora iOS (SwiftUI)
 ├── MiTelcelWidget/

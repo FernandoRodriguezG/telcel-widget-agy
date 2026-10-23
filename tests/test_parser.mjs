@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync, unlinkSync } from "node:fs";
 import { createRequire } from "node:module";
 
 globalThis.Color = class { constructor(hex) { this.hex = hex; } };
@@ -66,7 +66,9 @@ const {
   getSessionToken,
   getCredentials: getMovistarCredentials
 } = require("../src/MiMovistarWidget.js");
-const { formatSummary } = await import("../android/mitelcel_widget.mjs");
+const { formatSummary, loadTelcelCache } = await import("../android/mitelcel_widget.mjs");
+const { formatSummary: formatBaitSummary, loadBaitCache: loadBaitCacheAndroid } = await import("../android/mibait_widget.mjs");
+const { formatSummary: formatMovistarSummary, loadMovistarCache: loadMovistarCacheAndroid } = await import("../android/mimovistar_widget.mjs");
 
 const fixture = {
   blocks: {
@@ -120,6 +122,17 @@ assert.equal(jsRes.totalMB, 15001);
 assert.equal(jsRes.consumedMB, 9501); // 9500 MB + 0.5 MB + 0.5 MB
 assert.equal(jsRes.availableMB, 5474.5);
 assert(formatSummary(jsRes).includes("5.47 GB libres de 15.0 GB"));
+assert(formatSummary({ ...jsRes, fromCache: true }).includes("☁️"));
+
+const tmpTelcelCache = "/tmp/test_telcel_cache_android.json";
+writeFileSync(tmpTelcelCache, JSON.stringify(jsRes));
+try {
+  const androidTelcelCached = loadTelcelCache(tmpTelcelCache);
+  assert.equal(androidTelcelCached.fromCache, true);
+  assert.equal(androidTelcelCached.planName, "Telcel Libre 4");
+} finally {
+  try { unlinkSync(tmpTelcelCache); } catch (_) {}
+}
 
 const wMid = createWidget(jsRes);
 assert(wMid.texts.includes("9 días"));
@@ -620,11 +633,11 @@ const movEpoch = parseMovistarResponse({
 assert.equal(movEpoch.daysLeft, 7);
 assert.equal(movEpoch.cutoffISO, "2026-10-28");
 
-// 1e. Test ResetearPassword: per-carrier, "Todos" (index 3) and Cancel (-1)
+// 1e. Test ResetearPassword: per-carrier, "Todos" (index 4) and Cancel (-1)
 const resetSource = readFileSync("src/ResetearPassword.js", "utf8");
 const AsyncFunction = (async () => {}).constructor;
 const runReset = async (choice) => {
-  const store = new Map(["TELCEL_PASS", "TELCEL_PHONE", "BAIT_PHONE", "MOVISTAR_PID", "MOVISTAR_GUARD_KEY"].map(k => [k, "x"]));
+  const store = new Map(["TELCEL_PASS", "TELCEL_PHONE", "BAIT_PHONE", "MOVISTAR_PID", "MOVISTAR_GUARD_KEY", "ATT_PASS", "ATT_PHONE"].map(k => [k, "x"]));
   let alerts = 0;
   const Alert = class {
     addAction() {} addDestructiveAction() {} addCancelAction() {}
@@ -634,11 +647,12 @@ const runReset = async (choice) => {
   await new AsyncFunction("Alert", "Keychain", "Script", resetSource)(Alert, Keychain, { complete() {} });
   return [...store.keys()];
 };
-assert.deepEqual(await runReset(0), ["BAIT_PHONE", "MOVISTAR_PID", "MOVISTAR_GUARD_KEY"]);
-assert.deepEqual(await runReset(1), ["TELCEL_PASS", "TELCEL_PHONE", "MOVISTAR_PID", "MOVISTAR_GUARD_KEY"]);
-assert.deepEqual(await runReset(2), ["TELCEL_PASS", "TELCEL_PHONE", "BAIT_PHONE", "MOVISTAR_GUARD_KEY"]);
-assert.deepEqual(await runReset(3), ["MOVISTAR_GUARD_KEY"]);
-assert.equal((await runReset(-1)).length, 5);
+assert.deepEqual(await runReset(0), ["BAIT_PHONE", "MOVISTAR_PID", "MOVISTAR_GUARD_KEY", "ATT_PASS", "ATT_PHONE"]);
+assert.deepEqual(await runReset(1), ["TELCEL_PASS", "TELCEL_PHONE", "MOVISTAR_PID", "MOVISTAR_GUARD_KEY", "ATT_PASS", "ATT_PHONE"]);
+assert.deepEqual(await runReset(2), ["TELCEL_PASS", "TELCEL_PHONE", "BAIT_PHONE", "MOVISTAR_GUARD_KEY", "ATT_PASS", "ATT_PHONE"]);
+assert.deepEqual(await runReset(3), ["TELCEL_PASS", "TELCEL_PHONE", "BAIT_PHONE", "MOVISTAR_PID", "MOVISTAR_GUARD_KEY"]);
+assert.deepEqual(await runReset(4), ["MOVISTAR_GUARD_KEY"]);
+assert.equal((await runReset(-1)).length, 7);
 
 
 // 3. Test getCredentials in MiTelcelWidget
@@ -1081,6 +1095,9 @@ const testNetworkValidators = async () => {
 };
 
 await testNetworkValidators();
+
+// 1g. AT&T tests (Crypto, session extraction, parser, cache, network mock)
+await import("./test_att.mjs");
 
 // 2. Test Swift parser with the same fixture, error rejection, phone normalization & footerText
 const swiftSource = readFileSync("MiTelcelWidget/TelcelNetworkService.swift", "utf8");

@@ -208,7 +208,7 @@ async function main() {
 }
 
 async function requestMovistar(url, headers, parseJson = true) {
-  if (typeof Script !== "undefined" && typeof Request !== "undefined") {
+  if (typeof Request !== "undefined" && typeof Request.prototype?.loadJSON === "function") {
     const req = new Request(url);
     req.method = "GET";
     req.headers = headers;
@@ -261,6 +261,10 @@ async function fetchGuardKey() {
 }
 
 async function getGuardKey() {
+  if (typeof process !== "undefined" && process.env?.MOVISTAR_GUARD_KEY) {
+    const envKey = process.env.MOVISTAR_GUARD_KEY.trim();
+    if (envKey.length === 32) return envKey;
+  }
   if (typeof Keychain !== "undefined" && Keychain.contains("MOVISTAR_GUARD_KEY")) {
     const cached = Keychain.get("MOVISTAR_GUARD_KEY");
     if (cached && cached.length === 32) return cached;

@@ -189,7 +189,7 @@ async function main() {
 }
 
 async function requestTelcel(url, method, headers, body, parseJson = true) {
-  if (typeof Request !== "undefined") {
+  if (typeof Request !== "undefined" && typeof Request.prototype?.loadString === "function") {
     const req = new Request(url);
     req.method = method;
     req.headers = headers;
@@ -212,7 +212,7 @@ async function fetchDynamicMtlBasic() {
   try {
     // In Scriptable we need to use loadString explicitly to get text. We create a local req to do this:
     let html = "";
-    if (typeof Request !== "undefined") {
+    if (typeof Request !== "undefined" && typeof Request.prototype?.loadString === "function") {
       const r = new Request("https://www.mitelcel.com/mitelcel/login");
       r.method = "GET";
       html = await r.loadString();
@@ -224,7 +224,7 @@ async function fetchDynamicMtlBasic() {
     if (scriptMatch) {
       const scriptUrl = "https://www.mitelcel.com" + scriptMatch[1];
       let scriptText = "";
-      if (typeof Request !== "undefined") {
+      if (typeof Request !== "undefined" && typeof Request.prototype?.loadString === "function") {
         const r = new Request(scriptUrl);
         r.method = "GET";
         scriptText = await r.loadString();
