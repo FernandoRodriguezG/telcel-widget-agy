@@ -742,7 +742,7 @@ function loadCache() {
     const path = getCachePath();
     if (fm.fileExists(path)) {
       const parsed = JSON.parse(fm.readString(path));
-      if (parsed && typeof parsed === "object") {
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
         parsed.fromCache = true;
         return parsed;
       }

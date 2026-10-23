@@ -145,6 +145,26 @@ globalThis.Script = { name: () => "Mi Telcel" };
 assert.equal(createWidget(null).url, "scriptable:///run?scriptName=Mi%20Telcel");
 delete globalThis.Script;
 
+
+// Test parseTelcelResponse fallback for daysLeft
+const telcelNoDaysLeft = parseTelcelResponse({
+  blocks: {
+    children: [
+      { id: "tabs-plans-v2-container-0-0", children: [ { id: "tabs-plans-v2-card-0-0-0", type: "BLOCK" } ] },
+      { id: "plan-details-row-template-col-2-0-0", config: { value: "15 de noviembre" } },
+      { id: "text-plan-name", config: { value: "Telcel Libre" } },
+      { id: "tabs-plans-v2-plan-name-0-0-0", config: { value: "Datos de mi plan" } },
+      { id: "tabs-plans-v2-total-data-value-0-0-0", config: { value: "10" } },
+      { id: "tabs-plans-v2-total-data-unit-0-0-0", config: { value: "GB" } },
+      { id: "tabs-plans-v2-used-data-value-0-0-0", config: { value: "9.5" } },
+      { id: "tabs-plans-v2-used-data-unit-0-0-0", config: { value: "GB" } },
+      { id: "tabs-plans-v2-available-data-value-0-0-0", config: { value: "500" } },
+      { id: "tabs-plans-v2-available-data-unit-0-0-0", config: { value: "MB" } }
+    ]
+  }
+});
+assert.equal(telcelNoDaysLeft.daysLeft, 28);
+
 // 1b. Test Mi Bait parser & widget
 const baitNow = new Date(2026, 9, 20, 10, 9); // Oct 20, 2026 10:09 local
 const baitFixture = {
@@ -405,6 +425,18 @@ globalThis.FileManager = {
 };
 assert.equal(loadCache(), null);
 
+
+// Mock FileManager.local() such that getCachePath throws
+globalThis.FileManager = {
+  local: () => ({
+    documentsDirectory: () => { throw new Error("Simulated documentsDirectory exception"); },
+    joinPath: (a, b) => `${a}/${b}`,
+    fileExists: () => true,
+    readString: () => "{}"
+  })
+};
+assert.equal(loadCache(), null);
+
 // Mock FileManager.local() to return invalid JSON
 globalThis.FileManager = {
   local: () => ({
@@ -456,6 +488,18 @@ globalThis.FileManager = {
     joinPath: (a, b) => `${a}/${b}`,
     fileExists: () => true,
     readString: () => "42"
+  })
+};
+assert.equal(loadCache(), null);
+
+
+// Mock FileManager.local() to return JSON array (typeof [] === "object"; must be rejected)
+globalThis.FileManager = {
+  local: () => ({
+    documentsDirectory: () => "/tmp",
+    joinPath: (a, b) => `${a}/${b}`,
+    fileExists: () => true,
+    readString: () => "[1, 2, 3]"
   })
 };
 assert.equal(loadCache(), null);
