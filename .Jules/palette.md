@@ -9,3 +9,9 @@
 **Learning:** During widget setup or authentication flows on iOS, requiring users to manually switch to the numeric keyboard to input a phone number creates unnecessary friction and cognitive load. This is a common oversight in form design on mobile devices. Providing the correct context (e.g., a phone pad) for specific input fields drastically improves the setup UX, making it feel native and intuitive.
 
 **Action:** Always utilize appropriate contextual keyboards (e.g., `setPhonePadKeyboard()`, `setEmailAddressKeyboard()`) for text fields in Scriptable alerts (and equivalent SwiftUI components) to minimize user effort and prevent formatting errors during data entry.
+
+## 2026-10-23 - Optimización de Entrada de Datos con OS-Level Autofill en SwiftUI
+
+**Learning:** While using specific keyboard types (like number pads) is a great start for data entry on mobile devices, users still have to manually type their credentials if the OS doesn't recognize what type of data is being asked for. Adding explicit content types to form fields (`.textContentType` in SwiftUI) allows iOS to securely suggest data from Contacts or iCloud Keychain right above the keyboard. This turns a tedious, error-prone manual entry process into a single tap.
+
+**Action:** Always complement specific keyboard types with appropriate `.textContentType` modifiers (e.g., `.telephoneNumber`, `.username`, `.password`, `.emailAddress`) in SwiftUI forms (and their equivalents in HTML/other frameworks) to enable OS-level autofill and significantly reduce friction during authentication or setup flows.
