@@ -3,14 +3,15 @@
 // icon-color: red; icon-glyph: key;
 
 /**
- * Resetear Credenciales de Mi Telcel, Mi Bait y Mi Movistar en iOS Keychain (Scriptable)
+ * Resetear Credenciales de Mi Telcel, Mi Bait, Mi Movistar y Mi AT&T en iOS Keychain (Scriptable)
  * Elimina los datos guardados del operador elegido para permitir reingresarlos.
  */
 
 const KEYCHAIN_KEYS = {
   "Mi Telcel": ["TELCEL_PASS", "TELCEL_PHONE"],
   "Mi Bait": ["BAIT_PHONE"],
-  "Mi Movistar": ["MOVISTAR_PID"]
+  "Mi Movistar": ["MOVISTAR_PID"],
+  "Mi AT&T": ["ATT_PASS", "ATT_PHONE"]
 };
 const carriers = Object.keys(KEYCHAIN_KEYS);
 
