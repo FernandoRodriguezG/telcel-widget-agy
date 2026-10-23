@@ -48,7 +48,7 @@ struct ContentView: View {
                             .font(.headline)
                         TextField("Número a 10 dígitos", text: $phone)
                             .keyboardType(.numberPad)
-                            .textContentType(.telephoneNumber)
+                            .textContentType(.username)
                             .textFieldStyle(.roundedBorder)
                         SecureField("Contraseña Mi Telcel", text: $password)
                             .textContentType(.password)
