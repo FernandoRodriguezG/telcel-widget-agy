@@ -249,30 +249,27 @@ async function aesDecrypt(b64, password) {
   const ct = buf.slice(16);
   const { key, iv } = evpBytesToKey(password, salt);
 
-  let ptBytes;
   if (globalThis.crypto?.subtle) {
     const cryptoKey = await globalThis.crypto.subtle.importKey("raw", key, { name: "AES-CBC" }, false, ["decrypt"]);
     const ptBuf = await globalThis.crypto.subtle.decrypt({ name: "AES-CBC", iv }, cryptoKey, ct);
-    ptBytes = new Uint8Array(ptBuf);
-  } else {
-    const wv = await getAttWebView();
-    if (!wv) throw new Error("Cifrado AES-CBC no disponible en este entorno");
-    const res = await wv.evaluateJavaScript(`
-      (async () => {
-        const b64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
-        const toB64 = u8 => btoa(String.fromCharCode(...u8));
-        const keyBytes = b64(${JSON.stringify(bytesToBase64(key))});
-        const ivBytes = b64(${JSON.stringify(bytesToBase64(iv))});
-        const ctBytes = b64(${JSON.stringify(bytesToBase64(ct))});
-        const cryptoKey = await crypto.subtle.importKey("raw", keyBytes, { name: "AES-CBC" }, false, ["decrypt"]);
-        const buf = await crypto.subtle.decrypt({ name: "AES-CBC", iv: ivBytes }, cryptoKey, ctBytes);
-        return { ok: toB64(new Uint8Array(buf)) };
-      })().then(r => completion(r), e => completion({ err: String(e) }));
-    `, true);
-    if (!res?.ok) throw new Error(res?.err || "Error al descifrar AES en WebView");
-    ptBytes = base64ToBytes(res.ok);
+    return new TextDecoder().decode(ptBuf);
   }
-  return new TextDecoder().decode(ptBytes);
+
+  const wv = await getAttWebView();
+  if (!wv) throw new Error("Cifrado AES-CBC no disponible en este entorno");
+  const res = await wv.evaluateJavaScript(`
+    (async () => {
+      const b64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+      const keyBytes = b64(${JSON.stringify(bytesToBase64(key))});
+      const ivBytes = b64(${JSON.stringify(bytesToBase64(iv))});
+      const ctBytes = b64(${JSON.stringify(bytesToBase64(ct))});
+      const cryptoKey = await crypto.subtle.importKey("raw", keyBytes, { name: "AES-CBC" }, false, ["decrypt"]);
+      const buf = await crypto.subtle.decrypt({ name: "AES-CBC", iv: ivBytes }, cryptoKey, ctBytes);
+      return { ok: new TextDecoder().decode(buf) };
+    })().then(r => completion(r), e => completion({ err: String(e) }));
+  `, true);
+  if (!res?.ok) throw new Error(res?.err || "Error al descifrar AES en WebView");
+  return res.ok;
 }
 
 function extractSessionKey(html) {
@@ -287,7 +284,11 @@ async function requestATT(url, method = "GET", headers = {}, body = null, parseJ
     req.headers = headers;
     if (body) req.body = body;
     req.timeoutInterval = 10;
-    const data = parseJson ? await req.loadJSON() : await req.loadString();
+    const raw = await req.loadString();
+    if (req.response && req.response.statusCode >= 400) {
+      throw new Error(`Error en la solicitud: código de estado ${req.response.statusCode}`);
+    }
+    const data = parseJson ? JSON.parse(raw) : raw;
     let cookies = "";
     try {
       if (Array.isArray(req.response?.cookies)) {
@@ -613,6 +614,7 @@ function parseATTResponse(payload, now = new Date()) {
       if (unit.startsWith("m")) return num;
       if (unit.startsWith("g")) return num * 1024;
       if (unit.startsWith("t")) return num * 1024 * 1024;
+      if (unit === "bytes" || unit === "byte") return num / (1024 * 1024);
       return num;
     };
 
@@ -656,8 +658,9 @@ function parseATTResponse(payload, now = new Date()) {
 
   const chosenCutoff = baseCutoff || maxExpire;
   let daysLeft = 0;
-  if (servicePlan?.remainCutOffDays != null && servicePlan.remainCutOffDays !== "") {
-    daysLeft = Math.max(0, Number(servicePlan.remainCutOffDays));
+  const rawDays = Number(servicePlan?.remainCutOffDays);
+  if (Number.isFinite(rawDays)) {
+    daysLeft = Math.max(0, Math.floor(rawDays));
   } else if (chosenCutoff) {
     daysLeft = daysUntil(chosenCutoff, now);
   }

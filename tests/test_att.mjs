@@ -388,6 +388,97 @@ assert.equal(creds2.password, "my_new_pass");
 assert.equal(store.get("ATT_PHONE"), "5587654321");
 assert.equal(store.get("ATT_PASS"), "my_new_pass");
 
+// 14. Non-numeric remainCutOffDays fallback & raw "Bytes" unit parsing
+const nonNumericFixture = {
+  userBalances: [
+    {
+      ServicePlan: {
+        ProductRatePlanName: "AT&T Ármalo",
+        remainCutOffDays: "N/A",
+        allowances: [
+          {
+            AllowanceName: "Datos",
+            UnitType: "Bytes",
+            Quota: "1073741824", // 1 GB in bytes
+            RemainingQuota: "536870912", // 512 MB in bytes
+            UtilizedQuota: "536870912",
+            EndTime: "2026-10-28T23:59:59"
+          }
+        ]
+      }
+    }
+  ]
+};
+const nonNumRes = parseATTResponse(nonNumericFixture, attNow);
+assert.equal(Number.isFinite(nonNumRes.daysLeft), true);
+assert.equal(nonNumRes.daysLeft, 9); // Fallback to chosenCutoff (Oct 19 to Oct 28)
+assert.equal(nonNumRes.totalMB, 1024);
+assert.equal(nonNumRes.availableMB, 512);
+assert.equal(nonNumRes.consumedMB, 512);
+
+// 15. requestATT in Node.js (fetch) environment
+const origFetch2 = globalThis.fetch;
+try {
+  globalThis.fetch = async (url) => {
+    if (url === "https://test.com/json") {
+      return {
+        ok: true,
+        status: 200,
+        headers: { getSetCookie: () => ["sid=123; Path=/"] },
+        json: async () => ({ ok: true })
+      };
+    }
+    if (url === "https://test.com/401") {
+      return { ok: false, status: 401 };
+    }
+    throw new Error("offline");
+  };
+  const rJson = await requestATT("https://test.com/json", "GET", {}, null, true);
+  assert.deepEqual(rJson.data, { ok: true });
+  assert.equal(rJson.cookies, "sid=123");
+  assert.equal(rJson.status, 200);
+
+  await assert.rejects(
+    () => requestATT("https://test.com/401", "GET", {}, null, true),
+    /código de estado 401/
+  );
+} finally {
+  globalThis.fetch = origFetch2;
+}
+
+// 16. requestATT in Scriptable (Request) environment
+const origRequest = globalThis.Request;
+try {
+  globalThis.Request = class {
+    constructor(url) {
+      this.url = url;
+      this.method = "GET";
+      this.headers = {};
+      this.response = {
+        statusCode: url.includes("error") ? 500 : 200,
+        cookies: [{ name: "session", value: "abc" }]
+      };
+    }
+    async loadString() {
+      if (this.url.includes("error")) return "<html>Server Error</html>";
+      return JSON.stringify({ success: true });
+    }
+  };
+
+  const reqSuccess = await requestATT("https://test.com/ok", "GET", {}, null, true);
+  assert.deepEqual(reqSuccess.data, { success: true });
+  assert.equal(reqSuccess.cookies, "session=abc");
+  assert.equal(reqSuccess.status, 200);
+
+  await assert.rejects(
+    () => requestATT("https://test.com/error", "GET", {}, null, true),
+    /código de estado 500/
+  );
+} finally {
+  if (origRequest !== undefined) globalThis.Request = origRequest;
+  else delete globalThis.Request;
+}
+
 // Cleanup globals
 delete globalThis.Keychain;
 delete globalThis.Alert;
