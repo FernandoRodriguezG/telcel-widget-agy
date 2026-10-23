@@ -213,7 +213,11 @@ async function requestMovistar(url, headers, parseJson = true) {
     req.method = "GET";
     req.headers = headers;
     req.timeoutInterval = 5;
-    return parseJson ? req.loadJSON() : req.loadString();
+    const rawResult = await req.loadString();
+    if (req.response && (req.response.statusCode < 200 || req.response.statusCode >= 300)) {
+      throw new Error(`Error en la solicitud: código de estado ${req.response.statusCode}`);
+    }
+    return parseJson ? JSON.parse(rawResult) : rawResult;
   }
   const signal = typeof AbortSignal !== "undefined" && AbortSignal.timeout ? AbortSignal.timeout(5000) : undefined;
   const res = await fetch(url, { method: "GET", headers, signal });
@@ -750,6 +754,7 @@ if (typeof module !== "undefined") {
     validateMovistarCredentials,
     loginWithWebView,
     getSessionToken,
-    getCredentials
+    getCredentials,
+    requestMovistar
   };
 }

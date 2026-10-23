@@ -52,7 +52,7 @@ globalThis.ListWidget = class {
 };
 const require = createRequire(import.meta.url);
 const { parseTelcelResponse, createWidget, loadCache, getCredentials, validateTelcelCredentials, requestTelcel } = require("../src/MiTelcelWidget.js");
-const { fetchBaitData, parseBaitResponse, createWidget: createBaitWidget, loadCache: loadBaitCache, fetchServiceKey: fetchBaitServiceKey, CONFIG: baitConfig, getCredentials: getBaitCredentials, validateBaitCredentials } = require("../src/MiBaitWidget.js");
+const { fetchBaitData, parseBaitResponse, createWidget: createBaitWidget, loadCache: loadBaitCache, fetchServiceKey: fetchBaitServiceKey, CONFIG: baitConfig, getCredentials: getBaitCredentials, validateBaitCredentials, requestBait, requestText } = require("../src/MiBaitWidget.js");
 const {
   fetchMovistarData,
   parseMovistarResponse,
@@ -64,7 +64,8 @@ const {
   validateMovistarCredentials,
   loginWithWebView,
   getSessionToken,
-  getCredentials: getMovistarCredentials
+  getCredentials: getMovistarCredentials,
+  requestMovistar
 } = require("../src/MiMovistarWidget.js");
 const { formatSummary } = await import("../android/mitelcel_widget.mjs");
 
@@ -246,13 +247,14 @@ globalThis.Request = class {
     this.url = url;
   }
   async loadJSON() {
-    throw new Error("Simulated network error in Request.loadJSON");
+    throw new Error("Simulated network error in Request.loadString");
   }
   async loadString() {
-    // Return dummy JS with key for fetchServiceKey to avoid error there
     if (this.url.includes(".js")) return 'xOrdService:"' + baitConfig.ordServiceKey + '"';
+    if (this.url.includes("mibait.com/api")) throw new Error("Simulated network error in Request.loadString");
     return "<html><body><script src=\"main.123.js\"></script></body></html>";
   }
+
 };
 
 const originalConsoleWarnForRequest = console.warn;
@@ -262,7 +264,7 @@ try {
     async () => {
       await fetchBaitData({ phone: "5512345678" });
     },
-    /Simulated network error in Request.loadJSON/,
+    /Simulated network error in Request.loadString/,
     "fetchBaitData should propagate the network error from loadJSON"
   );
 } finally {
@@ -1320,5 +1322,73 @@ try {
     console.warn("⚠️ Swift binary not found. Skipping Swift parser tests.");
   } else {
     throw error;
+  }
+}
+
+
+// Test requestBait error handling in Scriptable (Request) environment
+{
+  const origRequest = globalThis.Request;
+  globalThis.Request = class {
+    constructor(url) {
+      this.url = url;
+    }
+    async loadJSON() {
+      this.response = { statusCode: 500 };
+      return {};
+    }
+    async loadString() {
+      this.response = { statusCode: 500 };
+      return "";
+    }
+  };
+  try {
+    await assert.rejects(
+      () => requestBait("https://test.com", {}),
+      /Error en la solicitud: código de estado 500/
+    );
+  } finally {
+    if (origRequest !== undefined) {
+      globalThis.Request = origRequest;
+    } else {
+      delete globalThis.Request;
+    }
+  }
+}
+
+// Test requestMovistar error handling in Scriptable (Request) environment
+{
+  const origRequest = globalThis.Request;
+  globalThis.Request = class {
+    constructor(url) {
+      this.url = url;
+    }
+    async loadString() {
+      this.response = { statusCode: 503 };
+      return "";
+    }
+    async load() {
+      this.response = { statusCode: 503 };
+      return "";
+    }
+  };
+  try {
+    const origScript = globalThis.Script;
+    globalThis.Script = {};
+    await assert.rejects(
+      () => requestMovistar("https://test.com", {}),
+      /Error en la solicitud: código de estado 503/
+    );
+    if (origScript !== undefined) {
+      globalThis.Script = origScript;
+    } else {
+      delete globalThis.Script;
+    }
+  } finally {
+    if (origRequest !== undefined) {
+      globalThis.Request = origRequest;
+    } else {
+      delete globalThis.Request;
+    }
   }
 }
