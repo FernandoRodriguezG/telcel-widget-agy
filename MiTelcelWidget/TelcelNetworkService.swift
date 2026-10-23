@@ -220,9 +220,6 @@ public actor TelcelNetworkService {
     public func fetchUsage(forceRefresh: Bool = false, overridePhone: String? = nil, overridePassword: String? = nil) async -> TelcelUsageEntry {
         let oPhone = Self.normalizePhone(overridePhone ?? "")
         let oPass = overridePassword ?? ""
-        if oPhone.count == 10, !oPass.isEmpty {
-            Self.saveCredentials(phone: oPhone, password: oPass)
-        }
         if !forceRefresh, let recent = loadCache(maxAge: 10) {
             return recent
         }
@@ -263,7 +260,7 @@ public actor TelcelNetworkService {
                 URLQueryItem(name: "pB64", value: passB64),
                 URLQueryItem(name: "url", value: "https://wbl.telcel-id.com:8443")
             ]
-            loginReq.httpBody = comps.percentEncodedQuery?.data(using: .utf8)
+            loginReq.httpBody = comps.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B").data(using: .utf8)
 
             let (loginData, _) = try await session.data(for: loginReq)
             guard let loginObj = try JSONSerialization.jsonObject(with: loginData) as? [String: Any],
@@ -271,6 +268,9 @@ public actor TelcelNetworkService {
                 throw URLError(.userAuthenticationRequired)
             }
             ssoToken = token
+            if oPhone.count == 10, !oPass.isEmpty {
+                Self.saveCredentials(phone: oPhone, password: oPass)
+            }
 
             // 2. Intercambio de Token SSO -> B2F JWT
             var tokenComps = URLComponents(string: "https://mi-telcel.smapps.mx/security/1.0.0/v2/token")!
@@ -342,7 +342,7 @@ public actor TelcelNetworkService {
             URLQueryItem(name: "token", value: token),
             URLQueryItem(name: "token_type", value: "revoke")
         ]
-        req.httpBody = comps.percentEncodedQuery?.data(using: .utf8)
+        req.httpBody = comps.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B").data(using: .utf8)
         _ = try? await session.data(for: req)
     }
 

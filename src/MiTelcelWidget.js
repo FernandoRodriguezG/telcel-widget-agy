@@ -398,8 +398,9 @@ function parseTelcelResponse(payload) {
     const n = Number(val);
     if (Number.isNaN(n)) return null;
 
-    if (unit === "GB" || unit === "gb") return n * 1000;
-    if (unit === "KB" || unit === "kb") return n / 1024;
+    const u = String(unit || "").toUpperCase();
+    if (u === "GB") return n * 1000;
+    if (u === "KB") return n / 1024;
     return n;
   };
 

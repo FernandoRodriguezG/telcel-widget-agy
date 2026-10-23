@@ -10,7 +10,7 @@
 const KEYCHAIN_KEYS = {
   "Mi Telcel": ["TELCEL_PASS", "TELCEL_PHONE"],
   "Mi Bait": ["BAIT_PHONE"],
-  "Mi Movistar": ["MOVISTAR_PID"],
+  "Mi Movistar": ["MOVISTAR_PID", "MOVISTAR_GUARD_KEY"],
   "Mi AT&T": ["ATT_PASS", "ATT_PHONE"]
 };
 const carriers = Object.keys(KEYCHAIN_KEYS);
