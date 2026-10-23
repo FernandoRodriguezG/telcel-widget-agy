@@ -38,11 +38,6 @@ const CACHE_FILE = process.env.BAIT_CACHE_FILE || (
     : resolve(__dirname, "../mibait_usage_cache.json")
 );
 
-export function fetchBaitAndroid(phone) {
-  // Consulta directa al endpoint público /get/consumption con MSISDN a 10 dígitos y x-ord-service
-  return fetchBaitData({ phone });
-}
-
 export function loadBaitCache(cachePath = CACHE_FILE, now = new Date()) {
   if (!existsSync(cachePath)) return null;
   try {
@@ -97,7 +92,7 @@ async function runCli() {
     }
   } else {
     try {
-      data = await fetchBaitAndroid(phone);
+      data = await fetchBaitData({ phone });
     } catch (err) {
       data = loadBaitCache();
       if (!data) {

@@ -38,11 +38,6 @@ const CACHE_FILE = process.env.TELCEL_CACHE_FILE || (
     : resolve(__dirname, "../mitelcel_usage_cache.json")
 );
 
-export function fetchTelcelAndroid(phone, password) {
-  // Ejecuta flujo de 4 pasos: SSO login -> Token B2F -> Wave B2F home flow -> Revocación preventiva SSO en finally
-  return fetchTelcelData({ phone, password });
-}
-
 export function loadTelcelCache(cachePath = CACHE_FILE) {
   if (!existsSync(cachePath)) return null;
   try {
@@ -84,7 +79,7 @@ async function runCli() {
     }
   } else {
     try {
-      data = await fetchTelcelAndroid(phone, pass);
+      data = await fetchTelcelData({ phone, password: pass });
     } catch (err) {
       data = loadTelcelCache();
       if (!data) {

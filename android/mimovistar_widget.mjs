@@ -38,11 +38,6 @@ const CACHE_FILE = process.env.MOVISTAR_CACHE_FILE || (
     : resolve(__dirname, "../mimovistar_usage_cache.json")
 );
 
-export function fetchMovistarAndroid(pId) {
-  // Consulta /consumptions-controller/datos-iniciales con token de sesión p_id y descifra con AES-256-GCM
-  return fetchMovistarData({ pId });
-}
-
 export function loadMovistarCache(cachePath = CACHE_FILE, now = new Date()) {
   if (!existsSync(cachePath)) return null;
   try {
@@ -97,7 +92,7 @@ async function runCli() {
     }
   } else {
     try {
-      data = await fetchMovistarAndroid(pId);
+      data = await fetchMovistarData({ pId });
     } catch (err) {
       data = loadMovistarCache();
       if (!data) {

@@ -34,11 +34,6 @@ const CACHE_FILE = process.env.ATT_CACHE_FILE || (
     : resolve(__dirname, "../miatt_usage_cache.json")
 );
 
-export function fetchATTAndroid(phone, password) {
-  // Autentica contra miattweb.att.com.mx con doble cifrado AES-256-CBC y consulta /api/users/fetchUserBalances
-  return fetchATTData({ phone, password });
-}
-
 export function loadATTCache(cachePath = CACHE_FILE, now = new Date()) {
   if (!existsSync(cachePath)) return null;
   try {
@@ -98,7 +93,7 @@ async function runCli() {
     }
   } else {
     try {
-      data = await fetchATTAndroid(phone, pass);
+      data = await fetchATTData({ phone, password: pass });
     } catch (err) {
       data = loadATTCache();
       if (!data) {
