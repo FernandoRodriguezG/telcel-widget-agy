@@ -1,13 +1,51 @@
 import Foundation
 import Security
+import CryptoKit
+import CommonCrypto
 
-// MARK: - 1. Modelo de Datos de Consumo (Plan Base + Datos Promocionales + Vigencia)
+// MARK: - 1. Operadores Móviles Soportados
+public enum MobileCarrier: String, CaseIterable, Identifiable, Codable, Sendable {
+    case telcel = "telcel"
+    case bait = "bait"
+    case att = "att"
+    case movistar = "movistar"
+
+    public var id: String { rawValue }
+
+    public var displayName: String {
+        switch self {
+        case .telcel: return "Telcel"
+        case .bait: return "Bait"
+        case .att: return "AT&T"
+        case .movistar: return "Movistar"
+        }
+    }
+
+    public var widgetHeaderName: String {
+        switch self {
+        case .telcel: return "Mi Telcel"
+        case .bait: return "Mi Bait"
+        case .att: return "Mi AT&T"
+        case .movistar: return "Mi Movistar"
+        }
+    }
+}
+
+// MARK: - 2. Modelo de Datos de Consumo Multi-Operador
 public struct TelcelBucketUsage: Codable, Equatable, Sendable {
     public let id: String
     public let name: String
     public let consumedMB: Double
     public let totalMB: Double
     public let availableMB: Double
+
+    public init(id: String, name: String, consumedMB: Double, totalMB: Double, availableMB: Double) {
+        self.id = id
+        self.name = name
+        self.consumedMB = consumedMB
+        self.totalMB = totalMB
+        self.availableMB = availableMB
+    }
 }
 
 public struct TelcelUsageEntry: Codable, Equatable, Sendable {
@@ -21,17 +59,63 @@ public struct TelcelUsageEntry: Codable, Equatable, Sendable {
     public let buckets: [TelcelBucketUsage]
     public let updatedAtString: String
     public let isCached: Bool
+    public let carrier: String
+
+    public init(
+        date: Date,
+        consumedMB: Double,
+        totalMB: Double,
+        availableMB: Double,
+        daysLeft: Int,
+        cutoffDate: String,
+        planName: String,
+        buckets: [TelcelBucketUsage],
+        updatedAtString: String,
+        isCached: Bool,
+        carrier: String = "telcel"
+    ) {
+        self.date = date
+        self.consumedMB = consumedMB
+        self.totalMB = totalMB
+        self.availableMB = availableMB
+        self.daysLeft = daysLeft
+        self.cutoffDate = cutoffDate
+        self.planName = planName
+        self.buckets = buckets
+        self.updatedAtString = updatedAtString
+        self.isCached = isCached
+        self.carrier = carrier
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        date = try container.decode(Date.self, forKey: .date)
+        consumedMB = try container.decode(Double.self, forKey: .consumedMB)
+        totalMB = try container.decode(Double.self, forKey: .totalMB)
+        availableMB = try container.decode(Double.self, forKey: .availableMB)
+        daysLeft = try container.decode(Int.self, forKey: .daysLeft)
+        cutoffDate = try container.decode(String.self, forKey: .cutoffDate)
+        planName = try container.decode(String.self, forKey: .planName)
+        buckets = try container.decode([TelcelBucketUsage].self, forKey: .buckets)
+        updatedAtString = try container.decode(String.self, forKey: .updatedAtString)
+        isCached = try container.decode(Bool.self, forKey: .isCached)
+        carrier = try container.decodeIfPresent(String.self, forKey: .carrier) ?? "telcel"
+    }
+
+    public var gbDivisor: Double {
+        carrier.lowercased() == "telcel" ? 1000.0 : 1024.0
+    }
 
     public var hasPromo: Bool {
         buckets.count > 1
     }
 
     public var remainingGB: Double {
-        max(0, availableMB / 1000.0)
+        max(0, availableMB / gbDivisor)
     }
 
     public var totalGB: Double {
-        totalMB / 1000.0
+        totalMB / gbDivisor
     }
 
     public var usageRatio: Double {
@@ -51,8 +135,28 @@ public struct TelcelUsageEntry: Codable, Equatable, Sendable {
         )
     }
 
+    public var cutoffPrefix: String {
+        let c = carrier.lowercased()
+        return (c == "bait" || c == "movistar") ? "Vigencia " : "Corte "
+    }
+
+    public var carrierDisplayName: String {
+        switch carrier.lowercased() {
+        case "bait": return "Mi Bait"
+        case "att": return "Mi AT&T"
+        case "movistar": return "Mi Movistar"
+        default: return "Mi Telcel"
+        }
+    }
+
     public var footerText: String {
-        "\(hasPromo ? "Plan+Promo" : planName) • ⏱️ \(updatedAtString)\(isCached ? " ☁️" : "")"
+        let tag: String
+        if hasPromo {
+            tag = (carrier.lowercased() == "bait" || carrier.lowercased() == "movistar") ? "Plan+Bono" : "Plan+Promo"
+        } else {
+            tag = planName
+        }
+        return "\(tag) • ⏱️ \(updatedAtString)\(isCached ? " ☁️" : "")"
     }
 
     public static let sample = TelcelUsageEntry(
@@ -68,8 +172,67 @@ public struct TelcelUsageEntry: Codable, Equatable, Sendable {
             TelcelBucketUsage(id: "0-1-0", name: "PROMO 50% DE DATOS 24 MDP", consumedMB: 0, totalMB: 5000, availableMB: 5000)
         ],
         updatedAtString: "10:09",
-        isCached: false
+        isCached: false,
+        carrier: "telcel"
     )
+
+    public static func sample(for carrier: MobileCarrier) -> TelcelUsageEntry {
+        switch carrier {
+        case .telcel:
+            return sample
+        case .bait:
+            return TelcelUsageEntry(
+                date: .now,
+                consumedMB: 4096,
+                totalMB: 15360,
+                availableMB: 11264,
+                daysLeft: 12,
+                cutoffDate: "1 de noviembre",
+                planName: "Mi Bait",
+                buckets: [
+                    TelcelBucketUsage(id: "BestEffort", name: "Velocidad normal", consumedMB: 4096, totalMB: 10240, availableMB: 6144),
+                    TelcelBucketUsage(id: "Benefits", name: "Beneficios", consumedMB: 0, totalMB: 5120, availableMB: 5120)
+                ],
+                updatedAtString: "10:09",
+                isCached: false,
+                carrier: "bait"
+            )
+        case .att:
+            return TelcelUsageEntry(
+                date: .now,
+                consumedMB: 5120,
+                totalMB: 14336,
+                availableMB: 9216,
+                daysLeft: 9,
+                cutoffDate: "28 de octubre",
+                planName: "AT&T Ármalo 11 GB",
+                buckets: [
+                    TelcelBucketUsage(id: "1", name: "Datos Nacionales", consumedMB: 5120, totalMB: 11264, availableMB: 6144),
+                    TelcelBucketUsage(id: "2", name: "Bono Promocional", consumedMB: 0, totalMB: 3072, availableMB: 3072)
+                ],
+                updatedAtString: "10:09",
+                isCached: false,
+                carrier: "att"
+            )
+        case .movistar:
+            return TelcelUsageEntry(
+                date: .now,
+                consumedMB: 7680,
+                totalMB: 12288,
+                availableMB: 4608,
+                daysLeft: 7,
+                cutoffDate: "28 de octubre",
+                planName: "Movistar Libre",
+                buckets: [
+                    TelcelBucketUsage(id: "1", name: "Navegación", consumedMB: 6656, totalMB: 10240, availableMB: 3584),
+                    TelcelBucketUsage(id: "2", name: "Bono Navegación", consumedMB: 1024, totalMB: 2048, availableMB: 1024)
+                ],
+                updatedAtString: "10:09",
+                isCached: false,
+                carrier: "movistar"
+            )
+        }
+    }
 
     public static let errorFallback = TelcelUsageEntry(
         date: .distantPast,
@@ -81,27 +244,67 @@ public struct TelcelUsageEntry: Codable, Equatable, Sendable {
         planName: "Sin conexión o credenciales",
         buckets: [],
         updatedAtString: "--:--",
-        isCached: true
+        isCached: true,
+        carrier: "telcel"
     )
+
+    public static func errorFallback(for carrier: MobileCarrier) -> TelcelUsageEntry {
+        TelcelUsageEntry(
+            date: .distantPast,
+            consumedMB: 0,
+            totalMB: 0,
+            availableMB: 0,
+            daysLeft: 0,
+            cutoffDate: "Verificar cuenta",
+            planName: "Sin conexión o credenciales",
+            buckets: [],
+            updatedAtString: "--:--",
+            isCached: true,
+            carrier: carrier.rawValue
+        )
+    }
 }
 
-// MARK: - 2. Cliente de Red Autónomo (SSO + JWT + Wave B2F Home Flow)
+// MARK: - 3. Credenciales por Operador
+public struct CarrierCredentials: Sendable {
+    public let phone: String
+    public let password: String
+    public let token: String
+
+    public init(phone: String = "", password: String = "", token: String = "") {
+        self.phone = phone
+        self.password = password
+        self.token = token
+    }
+}
+
+// MARK: - 4. Cliente de Red Autónomo Multi-Operador
 public actor TelcelNetworkService {
     public static let shared = TelcelNetworkService()
     // shortcut: Personal Team signing without App Group falls back to process container, enable group.mx.mitelcel.widget in paid Apple Developer account
     public static let appGroupId = "group.mx.mitelcel.widget"
 
     private let ua = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1"
-    private let cacheFileName = "telcel_widget_cache.json"
 
     public static var sharedDefaults: UserDefaults {
         UserDefaults(suiteName: appGroupId) ?? .standard
+    }
+
+    public static var selectedCarrier: MobileCarrier {
+        get {
+            let raw = sharedDefaults.string(forKey: "selected_carrier") ?? "telcel"
+            return MobileCarrier(rawValue: raw) ?? .telcel
+        }
+        set {
+            sharedDefaults.set(newValue.rawValue, forKey: "selected_carrier")
+        }
     }
 
     public static func normalizePhone(_ raw: String) -> String {
         String(raw.filter(\.isNumber).suffix(10))
     }
 
+    // MARK: - Keychain Helpers
     private static func getKeychain(_ key: String) -> String? {
         let query: [CFString: Any] = [
             kSecClass: kSecClassGenericPassword,
@@ -149,8 +352,8 @@ public actor TelcelNetworkService {
     }
 
     private static func migrateKeychainAccessibilityIfNeeded() {
-        let keys = ["telcel_phone", "telcel_pass"]
-        let migratedKey = "keychain_accessibility_migrated_v1"
+        let keys = ["telcel_phone", "telcel_pass", "bait_phone", "att_phone", "att_pass", "movistar_pid"]
+        let migratedKey = "keychain_accessibility_migrated_v2"
         if sharedDefaults.bool(forKey: migratedKey) { return }
 
         var allSucceeded = true
@@ -173,23 +376,217 @@ public actor TelcelNetworkService {
         }
     }
 
-    public static func loadCredentials() -> (phone: String, password: String) {
+    public static func loadCredentials(for carrier: MobileCarrier) -> CarrierCredentials {
         migrateKeychainAccessibilityIfNeeded()
         let defaults = sharedDefaults
         let env = ProcessInfo.processInfo.environment
-        let rawPhone = getKeychain("telcel_phone") ?? defaults.string(forKey: "telcel_phone") ?? env["TELCEL_PHONE"] ?? ""
-        let password = getKeychain("telcel_pass") ?? env["TELCEL_PASS"] ?? ""
-        return (normalizePhone(rawPhone), password)
+
+        switch carrier {
+        case .telcel:
+            let rawPhone = getKeychain("telcel_phone") ?? defaults.string(forKey: "telcel_phone") ?? env["TELCEL_PHONE"] ?? ""
+            let pass = getKeychain("telcel_pass") ?? env["TELCEL_PASS"] ?? ""
+            return CarrierCredentials(phone: normalizePhone(rawPhone), password: pass, token: "")
+        case .bait:
+            let rawPhone = getKeychain("bait_phone") ?? defaults.string(forKey: "bait_phone") ?? env["BAIT_PHONE"] ?? ""
+            return CarrierCredentials(phone: normalizePhone(rawPhone), password: "", token: "")
+        case .att:
+            let rawPhone = getKeychain("att_phone") ?? defaults.string(forKey: "att_phone") ?? env["ATT_PHONE"] ?? ""
+            let pass = getKeychain("att_pass") ?? env["ATT_PASS"] ?? ""
+            return CarrierCredentials(phone: normalizePhone(rawPhone), password: pass, token: "")
+        case .movistar:
+            let token = getKeychain("movistar_pid") ?? defaults.string(forKey: "movistar_pid") ?? env["MOVISTAR_PID"] ?? ""
+            return CarrierCredentials(phone: "", password: "", token: token)
+        }
+    }
+
+    public static func saveCredentials(
+        for carrier: MobileCarrier,
+        phone: String = "",
+        password: String = "",
+        token: String = ""
+    ) {
+        let cleanPhone = normalizePhone(phone)
+        switch carrier {
+        case .telcel:
+            setKeychain("telcel_phone", cleanPhone)
+            setKeychain("telcel_pass", password)
+            sharedDefaults.set(cleanPhone, forKey: "telcel_phone")
+            sharedDefaults.removeObject(forKey: "telcel_pass")
+        case .bait:
+            setKeychain("bait_phone", cleanPhone)
+            sharedDefaults.set(cleanPhone, forKey: "bait_phone")
+        case .att:
+            setKeychain("att_phone", cleanPhone)
+            setKeychain("att_pass", password)
+            sharedDefaults.set(cleanPhone, forKey: "att_phone")
+            sharedDefaults.removeObject(forKey: "att_pass")
+        case .movistar:
+            let cleanToken = token.trimmingCharacters(in: .whitespacesAndNewlines)
+            setKeychain("movistar_pid", cleanToken)
+            sharedDefaults.set(cleanToken, forKey: "movistar_pid")
+        }
+    }
+
+    public static func loadCredentials() -> (phone: String, password: String) {
+        let c = loadCredentials(for: .telcel)
+        return (c.phone, c.password)
     }
 
     public static func saveCredentials(phone: String, password: String) {
-        let clean = normalizePhone(phone)
-        setKeychain("telcel_phone", clean)
-        setKeychain("telcel_pass", password)
-        sharedDefaults.set(clean, forKey: "telcel_phone")
-        sharedDefaults.removeObject(forKey: "telcel_pass")
+        saveCredentials(for: .telcel, phone: phone, password: password)
     }
 
+    // MARK: - Date Formatting Helpers
+    public static let monthsES = [
+        "enero", "febrero", "marzo", "abril", "mayo", "junio",
+        "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"
+    ]
+
+    public static func formatSpanishDate(_ date: Date) -> String {
+        let cal = Calendar.current
+        let day = cal.component(.day, from: date)
+        let monthIdx = cal.component(.month, from: date) - 1
+        let monthName = (monthIdx >= 0 && monthIdx < monthsES.count) ? monthsES[monthIdx] : ""
+        return "\(day) de \(monthName)"
+    }
+
+    public static func parseDateAny(_ raw: Any?) -> Date? {
+        guard let raw else { return nil }
+        if let d = raw as? Double {
+            return Date(timeIntervalSince1970: d > 1_000_000_000_000 ? d / 1000.0 : d)
+        }
+        if let i = raw as? Int {
+            let d = Double(i)
+            return Date(timeIntervalSince1970: d > 1_000_000_000_000 ? d / 1000.0 : d)
+        }
+        guard let s = (raw as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !s.isEmpty else {
+            return nil
+        }
+        if let ms = Double(s), ms > 1_000_000_000_000 {
+            return Date(timeIntervalSince1970: ms / 1000.0)
+        }
+        let prefix = String(s.prefix(10))
+        let parts = prefix.split(separator: "-")
+        if parts.count == 3,
+           let y = Int(parts[0]), let m = Int(parts[1]), let d = Int(parts[2]) {
+            var comp = DateComponents()
+            comp.year = y
+            comp.month = m
+            comp.day = d
+            return Calendar.current.date(from: comp)
+        }
+        let dmy = s.split(separator: "/")
+        if dmy.count == 3,
+           let d = Int(dmy[0]), let m = Int(dmy[1]), let y = Int(dmy[2]) {
+            var comp = DateComponents()
+            comp.year = y
+            comp.month = m
+            comp.day = d
+            return Calendar.current.date(from: comp)
+        }
+        return nil
+    }
+
+    public static func daysUntil(_ target: Date, now: Date = .now) -> Int {
+        let cal = Calendar.current
+        let start = cal.startOfDay(for: now)
+        let end = cal.startOfDay(for: target)
+        let comps = cal.dateComponents([.day], from: start, to: end)
+        return max(0, comps.day ?? 0)
+    }
+
+    // MARK: - Crypto Helpers (Movistar AES-256-GCM & AT&T AES-256-CBC)
+    public static func decryptMovistarContent(payload: String, guardKey: String = "03818954072261267933921453028068") throws -> String {
+        let parts = payload.components(separatedBy: ":")
+        guard parts.count == 2, !parts[0].isEmpty, !parts[1].isEmpty else {
+            throw URLError(.cannotDecodeContentData)
+        }
+        func base64UrlDecode(_ str: String) -> Data? {
+            var b64 = str.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+            while b64.count % 4 != 0 { b64.append("=") }
+            return Data(base64Encoded: b64)
+        }
+        guard let cipherData = base64UrlDecode(parts[0]),
+              let ivData = base64UrlDecode(parts[1]),
+              cipherData.count >= 16 else {
+            throw URLError(.cannotDecodeContentData)
+        }
+        let key = SymmetricKey(data: Data(guardKey.utf8))
+        let nonce = try AES.GCM.Nonce(data: ivData)
+        let tag = cipherData.suffix(16)
+        let ct = cipherData.dropLast(16)
+        let box = try AES.GCM.SealedBox(nonce: nonce, ciphertext: ct, tag: tag)
+        let decrypted = try AES.GCM.open(box, using: key)
+        guard let str = String(data: decrypted, encoding: .utf8) else {
+            throw URLError(.cannotDecodeContentData)
+        }
+        return str
+    }
+
+    public static func evpBytesToKey(password: String, salt: Data) -> (key: Data, iv: Data) {
+        let passData = Data(password.utf8)
+        let d1 = Data(Insecure.MD5.hash(data: passData + salt))
+        let d2 = Data(Insecure.MD5.hash(data: d1 + passData + salt))
+        let d3 = Data(Insecure.MD5.hash(data: d2 + passData + salt))
+        return (d1 + d2, d3)
+    }
+
+    public static func aesCBC(data: Data, key: Data, iv: Data, operation: CCOperation) throws -> Data {
+        var outLength: Int = 0
+        var outData = Data(count: data.count + kCCBlockSizeAES128)
+        let status = outData.withUnsafeMutableBytes { outBytes in
+            data.withUnsafeBytes { dataBytes in
+                key.withUnsafeBytes { keyBytes in
+                    iv.withUnsafeBytes { ivBytes in
+                        CCCrypt(
+                            operation,
+                            CCAlgorithm(kCCAlgorithmAES),
+                            CCOptions(kCCOptionPKCS7Padding),
+                            keyBytes.baseAddress, key.count,
+                            ivBytes.baseAddress,
+                            dataBytes.baseAddress, data.count,
+                            outBytes.baseAddress, outBytes.count,
+                            &outLength
+                        )
+                    }
+                }
+            }
+        }
+        guard status == kCCSuccess else {
+            throw NSError(domain: "CommonCrypto", code: Int(status))
+        }
+        return outData.prefix(outLength)
+    }
+
+    public static func aesDecryptATT(base64: String, password: String) throws -> String {
+        guard let data = Data(base64Encoded: base64), data.count >= 16 else {
+            throw URLError(.cannotDecodeContentData)
+        }
+        let magic = data.prefix(8)
+        guard String(data: magic, encoding: .ascii) == "Salted__" else {
+            throw URLError(.cannotDecodeContentData)
+        }
+        let salt = data[8..<16]
+        let ciphertext = data.suffix(from: 16)
+        let (key, iv) = evpBytesToKey(password: password, salt: salt)
+        let decrypted = try aesCBC(data: ciphertext, key: key, iv: iv, operation: CCOperation(kCCDecrypt))
+        guard let str = String(data: decrypted, encoding: .utf8) else {
+            throw URLError(.cannotDecodeContentData)
+        }
+        return str
+    }
+
+    public static func aesEncryptATT(text: String, password: String) throws -> String {
+        var salt = Data(count: 8)
+        _ = salt.withUnsafeMutableBytes { SecRandomCopyBytes(kSecRandomDefault, 8, $0.baseAddress!) }
+        let (key, iv) = evpBytesToKey(password: password, salt: salt)
+        let plaintext = Data(text.utf8)
+        let encrypted = try aesCBC(data: plaintext, key: key, iv: iv, operation: CCOperation(kCCEncrypt))
+        let result = Data("Salted__".utf8) + salt + encrypted
+        return result.base64EncodedString()
+    }
+
+    // MARK: - Telcel Dynamic Basic Token Fetch
     private func fetchDynamicMtlBasic() async -> String {
         // Fallback if dynamic fetch fails.
         // NOTE FOR SECURITY SCANNERS/AGENTS: This is intentionally hardcoded as a fallback.
@@ -217,122 +614,172 @@ public actor TelcelNetworkService {
         return String(scriptText[basicRange])
     }
 
-    public func fetchUsage(forceRefresh: Bool = false, overridePhone: String? = nil, overridePassword: String? = nil) async -> TelcelUsageEntry {
+    // MARK: - Fetch Usage Router
+    public func fetchUsage(
+        carrier: MobileCarrier? = nil,
+        forceRefresh: Bool = false,
+        overridePhone: String? = nil,
+        overridePassword: String? = nil,
+        overrideToken: String? = nil
+    ) async -> TelcelUsageEntry {
+        let resolvedCarrier = carrier ?? Self.selectedCarrier
         let oPhone = Self.normalizePhone(overridePhone ?? "")
         let oPass = overridePassword ?? ""
-        if !forceRefresh, let recent = loadCache(maxAge: 10) {
+        let oToken = (overrideToken ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if !forceRefresh, let recent = loadCache(for: resolvedCarrier, maxAge: 10) {
             return recent
         }
 
-        let stored = Self.loadCredentials()
+        let stored = Self.loadCredentials(for: resolvedCarrier)
         let phone = oPhone.count == 10 ? oPhone : stored.phone
         let password = !oPass.isEmpty ? oPass : stored.password
-        guard phone.count == 10, !password.isEmpty else {
-            return loadCache() ?? .errorFallback
-        }
+        let token = !oToken.isEmpty ? oToken : stored.token
 
-        var ssoToken: String?
         let session = URLSession(configuration: .ephemeral)
         let result: TelcelUsageEntry
 
         do {
-            // 1. Login SSO en wbl.telcel-id.com:8443/login
-            var loginReq = URLRequest(url: URL(string: "https://wbl.telcel-id.com:8443/login")!)
-            loginReq.httpMethod = "POST"
-            loginReq.setValue("https://wbl.telcel-id.com:8443", forHTTPHeaderField: "Origin")
-            loginReq.setValue("https://wbl.telcel-id.com:8443/login?sitedomain=https://www.mitelcel.com&CCode=52&Type=MSISDN&Invocation=iFrame", forHTTPHeaderField: "Referer")
-            loginReq.setValue("application/x-www-form-urlencoded; charset=UTF-8", forHTTPHeaderField: "Content-Type")
-            loginReq.setValue("XMLHttpRequest", forHTTPHeaderField: "X-Requested-With")
-            loginReq.setValue(ua, forHTTPHeaderField: "User-Agent")
+            switch resolvedCarrier {
+            case .telcel:
+                guard phone.count == 10, !password.isEmpty else {
+                    return loadCache(for: .telcel) ?? .errorFallback(for: .telcel)
+                }
+                if oPhone.count == 10, !oPass.isEmpty {
+                    Self.saveCredentials(for: .telcel, phone: oPhone, password: oPass)
+                }
+                result = try await fetchTelcelUsage(phone: phone, password: password, session: session)
 
-            let passClean = password.filter { !$0.isWhitespace }
-            let passB64 = Data(passClean.utf8).base64EncodedString()
-            var comps = URLComponents()
-            comps.queryItems = [
-                URLQueryItem(name: "username", value: phone),
-                URLQueryItem(name: "telcel-pass", value: password),
-                URLQueryItem(name: "sitedomain", value: "https://www.mitelcel.com"),
-                URLQueryItem(name: "CCode", value: "52"),
-                URLQueryItem(name: "Type", value: "MSISDN"),
-                URLQueryItem(name: "Invocation", value: "iFrame"),
-                URLQueryItem(name: "MSISDN", value: phone),
-                URLQueryItem(name: "Source", value: ""),
-                URLQueryItem(name: "pB64", value: passB64),
-                URLQueryItem(name: "url", value: "https://wbl.telcel-id.com:8443")
-            ]
-            loginReq.httpBody = comps.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B").data(using: .utf8)
+            case .bait:
+                guard phone.count == 10 else {
+                    return loadCache(for: .bait) ?? .errorFallback(for: .bait)
+                }
+                if oPhone.count == 10 {
+                    Self.saveCredentials(for: .bait, phone: oPhone)
+                }
+                result = try await fetchBaitUsage(phone: phone, session: session)
 
-            let (loginData, _) = try await session.data(for: loginReq)
-            guard let loginObj = try JSONSerialization.jsonObject(with: loginData) as? [String: Any],
-                  let token = loginObj["token"] as? String else {
-                throw URLError(.userAuthenticationRequired)
-            }
-            ssoToken = token
-            if oPhone.count == 10, !oPass.isEmpty {
-                Self.saveCredentials(phone: oPhone, password: oPass)
-            }
+            case .att:
+                guard phone.count == 10, !password.isEmpty else {
+                    return loadCache(for: .att) ?? .errorFallback(for: .att)
+                }
+                if oPhone.count == 10, !oPass.isEmpty {
+                    Self.saveCredentials(for: .att, phone: oPhone, password: oPass)
+                }
+                result = try await fetchATTUsage(phone: phone, password: password, session: session)
 
-            // 2. Intercambio de Token SSO -> B2F JWT
-            var tokenComps = URLComponents(string: "https://mi-telcel.smapps.mx/security/1.0.0/v2/token")!
-            tokenComps.queryItems = [
-                URLQueryItem(name: "user", value: phone),
-                URLQueryItem(name: "token", value: token)
-            ]
-            var tokenReq = URLRequest(url: tokenComps.url!)
-            let dynamicBasic = await fetchDynamicMtlBasic()
-            tokenReq.setValue("Basic \(dynamicBasic)", forHTTPHeaderField: "Authorization")
-            tokenReq.setValue("token:mit|token:b2f", forHTTPHeaderField: "scope")
-            tokenReq.setValue("application/json", forHTTPHeaderField: "Accept")
-            tokenReq.setValue("0.14", forHTTPHeaderField: "App-Version")
-            tokenReq.setValue("38", forHTTPHeaderField: "Code-Version")
-            tokenReq.setValue("DSK", forHTTPHeaderField: "Device-Id")
-            tokenReq.setValue("1", forHTTPHeaderField: "tipoRequest")
-            tokenReq.setValue("WEB", forHTTPHeaderField: "Os")
-            tokenReq.setValue("13", forHTTPHeaderField: "Os-Version")
-            tokenReq.setValue("web-browser", forHTTPHeaderField: "X-Channel")
-            tokenReq.setValue("ktor-client", forHTTPHeaderField: "User-Agent")
-
-            let (tokenData, _) = try await session.data(for: tokenReq)
-            guard let tokenRoot = try JSONSerialization.jsonObject(with: tokenData) as? [String: Any],
-                  let tokenResp = tokenRoot["tokenResponse"] as? [String: Any],
-                  let tokens = tokenResp["tokens"] as? [[String: Any]],
-                  let b2fToken = tokens.first(where: { ($0["id"] as? String) == "token:b2f" })?["access_token"] as? String else {
-                throw URLError(.cannotParseResponse)
+            case .movistar:
+                guard !token.isEmpty else {
+                    return loadCache(for: .movistar) ?? .errorFallback(for: .movistar)
+                }
+                if !oToken.isEmpty {
+                    Self.saveCredentials(for: .movistar, token: oToken)
+                }
+                result = try await fetchMovistarUsage(pid: token, session: session)
             }
 
-            // 3. Consulta de Home Flow (Wave B2F: Plan Base + Datos Promocionales + Fecha de Corte)
-            var homeComps = URLComponents(string: "https://api.journeys.telcel.wavebybemobi.com/api/components/flow/home")!
-            homeComps.queryItems = [URLQueryItem(name: "externalCode", value: "52\(phone)")]
-            guard let homeURL = homeComps.url else { throw URLError(.badURL) }
-            var homeReq = URLRequest(url: homeURL)
-            homeReq.setValue("Bearer \(b2fToken)", forHTTPHeaderField: "Authorization")
-            homeReq.setValue("application/json", forHTTPHeaderField: "Accept")
-            homeReq.setValue("false", forHTTPHeaderField: "X-Is-iPad")
-            homeReq.setValue("WEB", forHTTPHeaderField: "x-wave-sdk")
-            homeReq.setValue("Desktop", forHTTPHeaderField: "x-wave-device")
-            homeReq.setValue("browser", forHTTPHeaderField: "x-wave-device-type")
-            homeReq.setValue("macos-web", forHTTPHeaderField: "x-wave-os")
-            homeReq.setValue("10.15.7", forHTTPHeaderField: "x-wave-os-version")
-            homeReq.setValue(ua, forHTTPHeaderField: "User-Agent")
-
-            let (homeData, homeResp) = try await session.data(for: homeReq)
-            guard (homeResp as? HTTPURLResponse)?.statusCode == 200 else {
-                throw URLError(.badServerResponse)
-            }
-            let entry = try Self.parseHomeFlowJSON(homeData)
-            saveCache(entry)
-            result = entry
+            saveCache(result, for: resolvedCarrier)
+            return result
         } catch {
-            result = loadCache() ?? .errorFallback
+            return loadCache(for: resolvedCarrier) ?? .errorFallback(for: resolvedCarrier)
         }
-
-        if let token = ssoToken {
-            await Self.revokeSSOToken(token, session: session)
-        }
-        return result
     }
 
-    private static func revokeSSOToken(_ token: String, session: URLSession) async {
+    // MARK: - Telcel Fetch Flow (SSO + B2F JWT + Wave B2F Home Flow)
+    private func fetchTelcelUsage(phone: String, password: String, session: URLSession) async throws -> TelcelUsageEntry {
+        var ssoToken: String?
+        defer {
+            if let token = ssoToken {
+                Task {
+                    await Self.revokeSSOToken(token, session: session)
+                }
+            }
+        }
+
+        // 1. Login SSO en wbl.telcel-id.com:8443/login
+        var loginReq = URLRequest(url: URL(string: "https://wbl.telcel-id.com:8443/login")!)
+        loginReq.httpMethod = "POST"
+        loginReq.setValue("https://wbl.telcel-id.com:8443", forHTTPHeaderField: "Origin")
+        loginReq.setValue("https://wbl.telcel-id.com:8443/login?sitedomain=https://www.mitelcel.com&CCode=52&Type=MSISDN&Invocation=iFrame", forHTTPHeaderField: "Referer")
+        loginReq.setValue("application/x-www-form-urlencoded; charset=UTF-8", forHTTPHeaderField: "Content-Type")
+        loginReq.setValue("XMLHttpRequest", forHTTPHeaderField: "X-Requested-With")
+        loginReq.setValue(ua, forHTTPHeaderField: "User-Agent")
+
+        let passClean = password.filter { !$0.isWhitespace }
+        let passB64 = Data(passClean.utf8).base64EncodedString()
+        var comps = URLComponents()
+        comps.queryItems = [
+            URLQueryItem(name: "username", value: phone),
+            URLQueryItem(name: "telcel-pass", value: password),
+            URLQueryItem(name: "sitedomain", value: "https://www.mitelcel.com"),
+            URLQueryItem(name: "CCode", value: "52"),
+            URLQueryItem(name: "Type", value: "MSISDN"),
+            URLQueryItem(name: "Invocation", value: "iFrame"),
+            URLQueryItem(name: "MSISDN", value: phone),
+            URLQueryItem(name: "Source", value: ""),
+            URLQueryItem(name: "pB64", value: passB64),
+            URLQueryItem(name: "url", value: "https://wbl.telcel-id.com:8443")
+        ]
+        loginReq.httpBody = comps.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B").data(using: .utf8)
+
+        let (loginData, _) = try await session.data(for: loginReq)
+        guard let loginObj = try JSONSerialization.jsonObject(with: loginData) as? [String: Any],
+              let token = loginObj["token"] as? String else {
+            throw URLError(.userAuthenticationRequired)
+        }
+        ssoToken = token
+
+        // 2. Intercambio de Token SSO -> B2F JWT
+        var tokenComps = URLComponents(string: "https://mi-telcel.smapps.mx/security/1.0.0/v2/token")!
+        tokenComps.queryItems = [
+            URLQueryItem(name: "user", value: phone),
+            URLQueryItem(name: "token", value: token)
+        ]
+        var tokenReq = URLRequest(url: tokenComps.url!)
+        let dynamicBasic = await fetchDynamicMtlBasic()
+        tokenReq.setValue("Basic \(dynamicBasic)", forHTTPHeaderField: "Authorization")
+        tokenReq.setValue("token:mit|token:b2f", forHTTPHeaderField: "scope")
+        tokenReq.setValue("application/json", forHTTPHeaderField: "Accept")
+        tokenReq.setValue("0.14", forHTTPHeaderField: "App-Version")
+        tokenReq.setValue("38", forHTTPHeaderField: "Code-Version")
+        tokenReq.setValue("DSK", forHTTPHeaderField: "Device-Id")
+        tokenReq.setValue("1", forHTTPHeaderField: "tipoRequest")
+        tokenReq.setValue("WEB", forHTTPHeaderField: "Os")
+        tokenReq.setValue("13", forHTTPHeaderField: "Os-Version")
+        tokenReq.setValue("web-browser", forHTTPHeaderField: "X-Channel")
+        tokenReq.setValue("ktor-client", forHTTPHeaderField: "User-Agent")
+
+        let (tokenData, _) = try await session.data(for: tokenReq)
+        guard let tokenRoot = try JSONSerialization.jsonObject(with: tokenData) as? [String: Any],
+              let tokenResp = tokenRoot["tokenResponse"] as? [String: Any],
+              let tokens = tokenResp["tokens"] as? [[String: Any]],
+              let b2fToken = tokens.first(where: { ($0["id"] as? String) == "token:b2f" })?["access_token"] as? String else {
+            throw URLError(.cannotParseResponse)
+        }
+
+        // 3. Consulta de Home Flow (Wave B2F: Plan Base + Datos Promocionales + Fecha de Corte)
+        var homeComps = URLComponents(string: "https://api.journeys.telcel.wavebybemobi.com/api/components/flow/home")!
+        homeComps.queryItems = [URLQueryItem(name: "externalCode", value: "52\(phone)")]
+        guard let homeURL = homeComps.url else { throw URLError(.badURL) }
+        var homeReq = URLRequest(url: homeURL)
+        homeReq.setValue("Bearer \(b2fToken)", forHTTPHeaderField: "Authorization")
+        homeReq.setValue("application/json", forHTTPHeaderField: "Accept")
+        homeReq.setValue("false", forHTTPHeaderField: "X-Is-iPad")
+        homeReq.setValue("WEB", forHTTPHeaderField: "x-wave-sdk")
+        homeReq.setValue("Desktop", forHTTPHeaderField: "x-wave-device")
+        homeReq.setValue("browser", forHTTPHeaderField: "x-wave-device-type")
+        homeReq.setValue("macos-web", forHTTPHeaderField: "x-wave-os")
+        homeReq.setValue("10.15.7", forHTTPHeaderField: "x-wave-os-version")
+        homeReq.setValue(ua, forHTTPHeaderField: "User-Agent")
+
+        let (homeData, homeResp) = try await session.data(for: homeReq)
+        guard (homeResp as? HTTPURLResponse)?.statusCode == 200 else {
+            throw URLError(.badServerResponse)
+        }
+        return try Self.parseHomeFlowJSON(homeData)
+    }
+
+    static func revokeSSOToken(_ token: String, session: URLSession) async {
         guard let url = URL(string: "https://dev.smapps.mx:9000/sso/revoke") else { return }
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
@@ -346,6 +793,128 @@ public actor TelcelNetworkService {
         _ = try? await session.data(for: req)
     }
 
+    // MARK: - Bait Fetch Flow
+    private func fetchBaitUsage(phone: String, session: URLSession) async throws -> TelcelUsageEntry {
+        let ordServiceKey = "57bfb26735aa4ec3a1baafa864006d7d"
+        guard let url = URL(string: "https://mibait.com/api/core/q/dn/\(phone)/get/consumption") else {
+            throw URLError(.badURL)
+        }
+        var req = URLRequest(url: url)
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+        req.setValue(ordServiceKey, forHTTPHeaderField: "x-ord-service")
+        let (data, resp) = try await session.data(for: req)
+        guard (resp as? HTTPURLResponse)?.statusCode == 200 else {
+            throw URLError(.badServerResponse)
+        }
+        return try Self.parseBaitJSON(data)
+    }
+
+    // MARK: - Movistar Fetch Flow
+    private func fetchMovistarUsage(pid: String, session: URLSession) async throws -> TelcelUsageEntry {
+        guard let url = URL(string: "https://mi.movistar.com.mx/consumptions-controller/datos-iniciales") else {
+            throw URLError(.badURL)
+        }
+        var req = URLRequest(url: url)
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue(pid, forHTTPHeaderField: "Authorization")
+        let (data, resp) = try await session.data(for: req)
+        guard (resp as? HTTPURLResponse)?.statusCode == 200,
+              let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let content = json["content"] as? String else {
+            throw URLError(.badServerResponse)
+        }
+        let decrypted = try Self.decryptMovistarContent(payload: content)
+        guard let decData = decrypted.data(using: .utf8) else {
+            throw URLError(.cannotDecodeContentData)
+        }
+        return try Self.parseMovistarJSON(decData)
+    }
+
+    // MARK: - AT&T Fetch Flow
+    private func fetchATTUsage(phone: String, password: String, session: URLSession) async throws -> TelcelUsageEntry {
+        // 1. GET / para obtener __sk y cookies de sesión
+        var bootReq = URLRequest(url: URL(string: "https://miattweb.att.com.mx/")!)
+        bootReq.setValue(ua, forHTTPHeaderField: "User-Agent")
+        let (bootData, bootResp) = try await session.data(for: bootReq)
+        let bootHtml = String(data: bootData, encoding: .utf8) ?? ""
+        let fallbackSk = "b5a0bab52d0227b35b1334dcbed7b1d"
+        let skRegex = try? NSRegularExpression(pattern: #"<meta[^>]+(?:name=["']__sk["'][^>]+content=["']([^"']+)["']|content=["']([^"']+)["'][^>]+name=["']__sk["'])"#, options: .caseInsensitive)
+        var sessionKey = fallbackSk
+        if let match = skRegex?.firstMatch(in: bootHtml, range: NSRange(location: 0, length: bootHtml.utf16.count)) {
+            if let r1 = Range(match.range(at: 1), in: bootHtml) {
+                sessionKey = String(bootHtml[r1])
+            } else if let r2 = Range(match.range(at: 2), in: bootHtml) {
+                sessionKey = String(bootHtml[r2])
+            }
+        }
+        let httpBoot = bootResp as? HTTPURLResponse
+        var cookies: [String] = []
+        if let headerFields = httpBoot?.allHeaderFields as? [String: String], let url = httpBoot?.url {
+            let parsedCookies = HTTPCookie.cookies(withResponseHeaderFields: headerFields, for: url)
+            cookies = parsedCookies.map { "\($0.name)=\($0.value)" }
+        }
+        let cookieHeader = cookies.joined(separator: "; ")
+
+        // 2. Cifrar contraseña y autenticar
+        let clientCipherKey = "f758a9b0ea88f03fa3d4e2f0876b11d6"
+        let encPass = try Self.aesEncryptATT(text: password, password: clientCipherKey)
+        let loginPlain = "{\"msisdn\":\"\(phone)\",\"encrypted_password\":\"\(encPass)\",\"migrationAccepted\":false}"
+        let encPayload = try Self.aesEncryptATT(text: loginPlain, password: sessionKey)
+        let subscriberId = UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(16).uppercased()
+
+        var loginReq = URLRequest(url: URL(string: "https://miattweb.att.com.mx/api/auth/login")!)
+        loginReq.httpMethod = "POST"
+        loginReq.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        loginReq.setValue("application/json", forHTTPHeaderField: "Accept")
+        loginReq.setValue("session", forHTTPHeaderField: "X-Crypto-Channel")
+        loginReq.setValue(String(subscriberId), forHTTPHeaderField: "subscriber_id")
+        if !cookieHeader.isEmpty { loginReq.setValue(cookieHeader, forHTTPHeaderField: "Cookie") }
+        loginReq.httpBody = try JSONSerialization.data(withJSONObject: ["encrypted_data": encPayload])
+
+        let (loginData, loginResp) = try await session.data(for: loginReq)
+        guard (loginResp as? HTTPURLResponse)?.statusCode == 200,
+              let loginRaw = try JSONSerialization.jsonObject(with: loginData) as? [String: Any],
+              let encLoginResp = loginRaw["encrypted_data"] as? String else {
+            throw URLError(.badServerResponse)
+        }
+        let decLogin = try Self.aesDecryptATT(base64: encLoginResp, password: sessionKey)
+        guard let decLoginData = decLogin.data(using: .utf8),
+              let loginJson = try JSONSerialization.jsonObject(with: decLoginData) as? [String: Any],
+              let token = loginJson["token"] as? String else {
+            throw URLError(.userAuthenticationRequired)
+        }
+
+        // 3. Consultar balances
+        let encToken = try Self.aesEncryptATT(text: "\"\(token)\"", password: sessionKey)
+        let subType = (loginJson["userInfo"] as? [String: Any])?["subscriber_type"] as? String ?? "postpaid"
+        let balancePlain = "{\"subscriber_type\":\"\(subType)\",\"balance_type\":null}"
+        let balanceEnc = try Self.aesEncryptATT(text: balancePlain, password: sessionKey)
+
+        var balReq = URLRequest(url: URL(string: "https://miattweb.att.com.mx/api/users/fetchUserBalances")!)
+        balReq.httpMethod = "POST"
+        balReq.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        balReq.setValue("application/json", forHTTPHeaderField: "Accept")
+        balReq.setValue("Bearer \(encToken)", forHTTPHeaderField: "Authorization")
+        balReq.setValue("session", forHTTPHeaderField: "X-Crypto-Channel")
+        balReq.setValue(String(subscriberId), forHTTPHeaderField: "subscriber_id")
+        if !cookieHeader.isEmpty { balReq.setValue(cookieHeader, forHTTPHeaderField: "Cookie") }
+        balReq.httpBody = try JSONSerialization.data(withJSONObject: ["encrypted_data": balanceEnc])
+
+        let (balData, balResp) = try await session.data(for: balReq)
+        guard (balResp as? HTTPURLResponse)?.statusCode == 200,
+              let balRaw = try JSONSerialization.jsonObject(with: balData) as? [String: Any],
+              let encBalResp = balRaw["encrypted_data"] as? String else {
+            throw URLError(.badServerResponse)
+        }
+        let decBal = try Self.aesDecryptATT(base64: encBalResp, password: sessionKey)
+        guard let decBalData = decBal.data(using: .utf8) else {
+            throw URLError(.cannotDecodeContentData)
+        }
+        return try Self.parseATTJSON(decBalData)
+    }
+
+    // MARK: - Parsers
     public static func parseHomeFlowJSON(_ data: Data, now: Date = .now) throws -> TelcelUsageEntry {
         let root = try JSONSerialization.jsonObject(with: data)
         var byId: [String: [String: Any]] = [:]
@@ -454,23 +1023,368 @@ public actor TelcelNetworkService {
             planName: planName,
             buckets: buckets,
             updatedAtString: now.formatted(.dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits)),
-            isCached: false
+            isCached: false,
+            carrier: "telcel"
         )
     }
 
-    private var cacheURL: URL? {
-        (FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: Self.appGroupId)
-            ?? FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first)?
-            .appendingPathComponent(cacheFileName)
+    public static func parseBaitJSON(_ data: Data, now: Date = .now) throws -> TelcelUsageEntry {
+        guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              (root["success"] as? Bool) == true,
+              let items = root["data"] as? [[String: Any]] else {
+            throw URLError(.cannotParseResponse)
+        }
+
+        var buckets: [TelcelBucketUsage] = []
+        var maxExpire: Date?
+        var isUnlimited = false
+        let cal = Calendar.current
+        let today = cal.startOfDay(for: now)
+
+        func trackExpire(_ d: Date?) {
+            guard let d else { return }
+            if maxExpire == nil || d > maxExpire! { maxExpire = d }
+        }
+
+        for item in items {
+            let cat = item["category"] as? String
+            let type = item["type"] as? String ?? ""
+            let unlimited = (item["unlimited"] as? Bool) ?? false
+
+            if cat == "Data" && type != "SocialMedia" && type != "Unkown" && unlimited {
+                isUnlimited = true
+            }
+
+            if type == "BestEffort" || type == "Throttling" {
+                let res = item["resume"] as? [String: Any]
+                let total = (res?["total"] as? Double) ?? (res?["total"] as? Int).map(Double.init) ?? 0
+                let avail = (res?["unused"] as? Double) ?? (res?["unused"] as? Int).map(Double.init) ?? 0
+                let consumed = max(0, total - avail)
+                if total > 0 || avail > 0 {
+                    trackExpire(parseDateAny(res?["expire_date"]))
+                    buckets.append(TelcelBucketUsage(
+                        id: type,
+                        name: type == "BestEffort" ? "Velocidad normal" : "Velocidad reducida",
+                        consumedMB: consumed,
+                        totalMB: total,
+                        availableMB: avail
+                    ))
+                }
+            } else if type == "Benefits", let offers = item["offers_detail"] as? [[String: Any]] {
+                var promoTotal = 0.0
+                var promoAvail = 0.0
+                for offer in offers {
+                    let exp = parseDateAny(offer["expire_date"])
+                    if let exp, exp < today { continue }
+                    let t = (offer["total"] as? Double) ?? (offer["total"] as? Int).map(Double.init) ?? 0
+                    let u = (offer["unused"] as? Double) ?? (offer["unused"] as? Int).map(Double.init) ?? 0
+                    promoTotal += t
+                    promoAvail += u
+                    trackExpire(exp)
+                }
+                if promoTotal > 0 || promoAvail > 0 {
+                    buckets.append(TelcelBucketUsage(
+                        id: "Benefits",
+                        name: "Beneficios",
+                        consumedMB: max(0, promoTotal - promoAvail),
+                        totalMB: promoTotal,
+                        availableMB: promoAvail
+                    ))
+                }
+            }
+        }
+
+        guard !buckets.isEmpty else {
+            throw URLError(.cannotParseResponse)
+        }
+
+        let consumedMB = buckets.reduce(0.0) { $0 + $1.consumedMB }
+        let totalMB = buckets.reduce(0.0) { $0 + $1.totalMB }
+        let availableMB = buckets.reduce(0.0) { $0 + $1.availableMB }
+        let daysLeft = maxExpire.map { daysUntil($0, now: now) } ?? 0
+        let cutoffDate = maxExpire.map { formatSpanishDate($0) } ?? ""
+        let planName = isUnlimited ? "Bait Ilimitado" : "Mi Bait"
+
+        return TelcelUsageEntry(
+            date: now,
+            consumedMB: consumedMB,
+            totalMB: totalMB,
+            availableMB: availableMB,
+            daysLeft: daysLeft,
+            cutoffDate: cutoffDate,
+            planName: planName,
+            buckets: buckets,
+            updatedAtString: now.formatted(.dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits)),
+            isCached: false,
+            carrier: "bait"
+        )
     }
 
-    private func saveCache(_ entry: TelcelUsageEntry) {
-        guard let url = cacheURL, let data = try? JSONEncoder().encode(entry) else { return }
+    public static func parseMovistarJSON(_ data: Data, now: Date = .now) throws -> TelcelUsageEntry {
+        guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let bolton = root["bolton"] as? [[String: Any]], !bolton.isEmpty else {
+            throw URLError(.cannotParseResponse)
+        }
+
+        var buckets: [TelcelBucketUsage] = []
+        var maxExpire: Date?
+        var isUnlimited = false
+
+        func trackExpire(_ d: Date?) {
+            guard let d else { return }
+            if maxExpire == nil || d > maxExpire! { maxExpire = d }
+        }
+
+        func parseToMB(_ text: String?) -> Double {
+            guard let text else { return 0 }
+            let clean = text.replacingOccurrences(of: ",", with: "")
+            guard let regex = try? NSRegularExpression(pattern: #"(\d+(?:\.\d+)?)\s*(KB|MB|GB|TB)"#, options: .caseInsensitive),
+                  let match = regex.firstMatch(in: clean, range: NSRange(location: 0, length: clean.utf16.count)),
+                  let r1 = Range(match.range(at: 1), in: clean),
+                  let r2 = Range(match.range(at: 2), in: clean),
+                  let val = Double(clean[r1]) else { return 0 }
+            let unit = clean[r2].uppercased()
+            if unit == "TB" { return val * 1024 * 1024 }
+            if unit == "GB" { return val * 1024 }
+            if unit == "KB" { return val / 1024 }
+            return val
+        }
+
+        for item in bolton {
+            let name = (item["name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let lower = name.lowercased()
+            if lower.hasPrefix("redes sociales") || lower.hasPrefix("minutos") || lower.hasPrefix("sms") || lower.hasPrefix("voz") || lower.hasPrefix("mensajes") {
+                continue
+            }
+
+            let label = (item["consumptionLabel"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let benefit = (item["totalBenefit"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let exp = parseDateAny(item["vigencia"])
+
+            if label.localizedCaseInsensitiveContains("ilimitado") || benefit.localizedCaseInsensitiveContains("ilimitado") {
+                isUnlimited = true
+                trackExpire(exp)
+                continue
+            }
+
+            var consumedMB = 0.0
+            var totalMB = 0.0
+            let pair = label.replacingOccurrences(of: #"^llevas\s+"#, with: "", options: [.regularExpression, .caseInsensitive])
+                .components(separatedBy: " de ")
+            if pair.count == 2 {
+                consumedMB = parseToMB(pair[0])
+                totalMB = parseToMB(pair[1])
+            } else {
+                totalMB = parseToMB(!benefit.isEmpty ? benefit : label)
+                let pct = (item["consumption"] as? Double) ?? (item["consumption"] as? Int).map(Double.init) ?? 0
+                if totalMB > 0 {
+                    consumedMB = totalMB * min(100, max(0, pct)) / 100.0
+                }
+            }
+
+            let availMB = max(0, totalMB - consumedMB)
+            if totalMB > 0 || availMB > 0 {
+                trackExpire(exp)
+                buckets.append(TelcelBucketUsage(
+                    id: name.isEmpty ? "bolton-\(buckets.count)" : name,
+                    name: name.isEmpty ? "Navegación" : name,
+                    consumedMB: consumedMB,
+                    totalMB: totalMB,
+                    availableMB: availMB
+                ))
+            }
+        }
+
+        if let saldos = root["saldos"] as? [String: Any] {
+            trackExpire(parseDateAny(saldos["topupsBalanceExpirationDate"] ?? saldos["topupsBalanceExpiration"]))
+        }
+
+        guard !buckets.isEmpty || isUnlimited else {
+            throw URLError(.cannotParseResponse)
+        }
+
+        let consumedMB = buckets.reduce(0.0) { $0 + $1.consumedMB }
+        let totalMB = isUnlimited ? 0.0 : buckets.reduce(0.0) { $0 + $1.totalMB }
+        let availableMB = isUnlimited ? 0.0 : buckets.reduce(0.0) { $0 + $1.availableMB }
+        let daysLeft = maxExpire.map { daysUntil($0, now: now) } ?? 0
+        let cutoffDate = maxExpire.map { formatSpanishDate($0) } ?? ""
+        let planName = (root["offering"] as? String) ?? (isUnlimited ? "Movistar Ilimitado" : "Movistar Libre")
+
+        return TelcelUsageEntry(
+            date: now,
+            consumedMB: consumedMB,
+            totalMB: totalMB,
+            availableMB: availableMB,
+            daysLeft: daysLeft,
+            cutoffDate: cutoffDate,
+            planName: planName,
+            buckets: buckets,
+            updatedAtString: now.formatted(.dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits)),
+            isCached: false,
+            carrier: "movistar"
+        )
+    }
+
+    public static func parseATTJSON(_ data: Data, now: Date = .now) throws -> TelcelUsageEntry {
+        guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw URLError(.cannotParseResponse)
+        }
+
+        var servicePlan: [String: Any]?
+        var rawAllowances: [[String: Any]] = []
+
+        if let ubList = root["userBalances"] as? [[String: Any]], !ubList.isEmpty {
+            servicePlan = (ubList[0]["ServicePlan"] as? [String: Any]) ?? ubList[0]
+            if let a = servicePlan?["allowances"] as? [[String: Any]] {
+                rawAllowances = a
+            } else if let a = ubList[0]["allowances"] as? [[String: Any]] {
+                rawAllowances = a
+            } else if let a = ubList[0]["AllowanceVO"] as? [[String: Any]] {
+                rawAllowances = a
+            }
+        } else if let ub = root["userBalances"] as? [String: Any] {
+            servicePlan = (ub["ServicePlan"] as? [String: Any]) ?? ub
+            if let a = servicePlan?["allowances"] as? [[String: Any]] {
+                rawAllowances = a
+            } else if let mtx = ub["MTX_SS_GetBalanceOutVO"] as? [String: Any],
+                      let bal = mtx["BalanceVO"] as? [String: Any],
+                      let a = bal["AllowanceVO"] as? [[String: Any]] {
+                rawAllowances = a
+            } else if let a = ub["AllowanceVO"] as? [[String: Any]] {
+                rawAllowances = a
+            }
+        }
+
+        if rawAllowances.isEmpty, let a = root["allowances"] as? [[String: Any]] {
+            rawAllowances = a
+        }
+
+        guard !rawAllowances.isEmpty else {
+            throw URLError(.cannotParseResponse)
+        }
+
+        var buckets: [TelcelBucketUsage] = []
+        var maxExpire: Date?
+        var isUnlimited = false
+        let cal = Calendar.current
+        let today = cal.startOfDay(for: now)
+
+        func trackExpire(_ d: Date?) {
+            guard let d else { return }
+            if maxExpire == nil || d > maxExpire! { maxExpire = d }
+        }
+
+        func toMBVal(_ val: Any?, unit: String) -> Double {
+            let n = (val as? Double) ?? (val as? Int).map(Double.init) ?? (val as? String).flatMap(Double.init) ?? 0
+            let u = unit.lowercased()
+            if u.hasPrefix("k") { return n / 1024.0 }
+            if u.hasPrefix("m") { return n }
+            if u.hasPrefix("g") { return n * 1024.0 }
+            if u.hasPrefix("t") { return n * 1024.0 * 1024.0 }
+            if u == "bytes" || u == "byte" { return n / (1024.0 * 1024.0) }
+            return n
+        }
+
+        for item in rawAllowances {
+            let name = (item["FriendlyName"] as? String) ?? (item["AllowanceName"] as? String) ?? (item["AllowanceDescription"] as? String) ?? ""
+            let desc = "\(item["AllowanceDescription"] ?? "") \(item["AllowanceName"] ?? "") \(name)".lowercased()
+            if desc.range(of: #"redes|social|streaming|video|minutos|llamadas|sms|mensajes|voz"#, options: .regularExpression) != nil {
+                continue
+            }
+            let unit = (item["UnitType"] as? String) ?? ""
+            if !unit.lowercased().contains("byte") { continue }
+
+            let endDt = parseDateAny(item["EndTime"] ?? item["expire_date"] ?? item["expirationDate"])
+            if let endDt {
+                if endDt < today { continue }
+                trackExpire(endDt)
+            }
+
+            if (item["Unlimited"] as? String)?.uppercased() == "Y" {
+                isUnlimited = true
+                continue
+            }
+
+            let total = toMBVal(item["Quota"], unit: unit)
+            let avail = toMBVal(item["RemainingQuota"], unit: unit)
+            var consumed = toMBVal(item["UtilizedQuota"], unit: unit)
+            if consumed == 0 && total > avail {
+                consumed = total - avail
+            }
+
+            if total >= 99_999_000 {
+                isUnlimited = true
+                continue
+            }
+
+            if total > 0 || avail > 0 || consumed > 0 {
+                buckets.append(TelcelBucketUsage(
+                    id: (item["AllowanceID"] as? String) ?? "att-\(buckets.count)",
+                    name: name.isEmpty ? "Datos AT&T" : name,
+                    consumedMB: consumed,
+                    totalMB: total,
+                    availableMB: avail
+                ))
+            }
+        }
+
+        guard !buckets.isEmpty || isUnlimited else {
+            throw URLError(.cannotParseResponse)
+        }
+
+        let consumedMB = buckets.reduce(0.0) { $0 + $1.consumedMB }
+        let totalMB = isUnlimited ? 0.0 : buckets.reduce(0.0) { $0 + $1.totalMB }
+        let availableMB = isUnlimited ? 0.0 : buckets.reduce(0.0) { $0 + $1.availableMB }
+
+        let daysLeft: Int
+        if let daysStr = servicePlan?["remainCutOffDays"] as? String, let d = Int(daysStr) {
+            daysLeft = d
+        } else if let d = servicePlan?["remainCutOffDays"] as? Int {
+            daysLeft = d
+        } else if let maxExpire {
+            daysLeft = daysUntil(maxExpire, now: now)
+        } else {
+            daysLeft = 0
+        }
+
+        let cutoffDate = maxExpire.map { formatSpanishDate($0) } ?? ""
+        let planName = (servicePlan?["ProductRatePlanName"] as? String)
+            ?? (servicePlan?["ProductOfferName"] as? String)
+            ?? (isUnlimited ? "AT&T Ármalo Ilimitado" : "Mi AT&T")
+
+        return TelcelUsageEntry(
+            date: now,
+            consumedMB: consumedMB,
+            totalMB: totalMB,
+            availableMB: availableMB,
+            daysLeft: daysLeft,
+            cutoffDate: cutoffDate,
+            planName: planName,
+            buckets: buckets,
+            updatedAtString: now.formatted(.dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits)),
+            isCached: false,
+            carrier: "att"
+        )
+    }
+
+    // MARK: - Cache Helpers
+    private func cacheFileName(for carrier: MobileCarrier) -> String {
+        carrier == .telcel ? "telcel_widget_cache.json" : "\(carrier.rawValue)_usage_cache.json"
+    }
+
+    private func cacheURL(for carrier: MobileCarrier) -> URL? {
+        (FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: Self.appGroupId)
+            ?? FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first)?
+            .appendingPathComponent(cacheFileName(for: carrier))
+    }
+
+    private func saveCache(_ entry: TelcelUsageEntry, for carrier: MobileCarrier) {
+        guard let url = cacheURL(for: carrier), let data = try? JSONEncoder().encode(entry) else { return }
         try? data.write(to: url)
     }
 
-    private func loadCache(maxAge: TimeInterval? = nil) -> TelcelUsageEntry? {
-        guard let url = cacheURL,
+    public func loadCache(for carrier: MobileCarrier, maxAge: TimeInterval? = nil) -> TelcelUsageEntry? {
+        guard let url = cacheURL(for: carrier),
               let data = try? Data(contentsOf: url),
               let cached = try? JSONDecoder().decode(TelcelUsageEntry.self, from: data) else {
             return nil
@@ -488,13 +1402,35 @@ public actor TelcelNetworkService {
             planName: cached.planName,
             buckets: cached.buckets,
             updatedAtString: cached.updatedAtString,
-            isCached: maxAge == nil
+            isCached: maxAge == nil,
+            carrier: cached.carrier
         )
+    }
+
+    private func saveCache(_ entry: TelcelUsageEntry) {
+        let c = MobileCarrier(rawValue: entry.carrier.lowercased()) ?? .telcel
+        saveCache(entry, for: c)
+    }
+
+    public func loadCache(maxAge: TimeInterval? = nil) -> TelcelUsageEntry? {
+        loadCache(for: Self.selectedCarrier, maxAge: maxAge)
     }
 }
 
+// MARK: - 5. Componente Visual de Widget SwiftUI (Bicolor Semi-Arco)
 #if canImport(SwiftUI)
 import SwiftUI
+
+extension MobileCarrier {
+    public var brandColor: Color {
+        switch self {
+        case .telcel: return Color(red: 0.00, green: 0.35, blue: 0.75)
+        case .bait: return Color(red: 0.95, green: 0.72, blue: 0.00)
+        case .att: return Color(red: 0.00, green: 0.62, blue: 0.89)
+        case .movistar: return Color(red: 0.00, green: 0.65, blue: 0.35)
+        }
+    }
+}
 
 public struct MiTelcelWidgetCardContent: View {
     public let entry: TelcelUsageEntry
@@ -519,14 +1455,14 @@ public struct MiTelcelWidgetCardContent: View {
     private var dailyAllowanceText: String {
         let dailyMB = max(0, entry.availableMB) / Double(max(1, entry.daysLeft))
         return dailyMB >= 1000
-            ? String(format: "%.2f GB/d", dailyMB / 1000.0)
+            ? String(format: "%.2f GB/d", dailyMB / entry.gbDivisor)
             : String(format: "%.0f MB/d", dailyMB)
     }
 
     private var spentShortText: String {
         entry.consumedMB < 1000
             ? String(format: "%.0f MB", entry.consumedMB)
-            : String(format: "%.2f GB", entry.consumedMB / 1000.0)
+            : String(format: "%.2f GB", entry.consumedMB / entry.gbDivisor)
     }
 
     public var body: some View {
@@ -545,11 +1481,11 @@ public struct MiTelcelWidgetCardContent: View {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(alignment: .center) {
                     VStack(alignment: .leading, spacing: 1) {
-                        Text("Mi Telcel")
+                        Text(entry.carrierDisplayName)
                             .font(.system(size: 11, weight: .bold))
                             .foregroundStyle(.white)
                         if !entry.cutoffDate.isEmpty {
-                            Text(entry.totalMB > 0 ? "Corte \(entry.shortCutoffDate)" : entry.cutoffDate)
+                            Text(entry.totalMB > 0 ? "\(entry.cutoffPrefix)\(entry.shortCutoffDate)" : entry.cutoffDate)
                                 .font(.system(size: 9.5, weight: .regular))
                                 .foregroundStyle(subtitleGray)
                                 .lineLimit(1)
@@ -566,53 +1502,53 @@ public struct MiTelcelWidgetCardContent: View {
                     }
                 }
 
-            ZStack(alignment: .bottom) {
-                Circle()
-                    .trim(from: 0.5, to: 1.0)
-                    .stroke(trackGray, style: StrokeStyle(lineWidth: 10, lineCap: .round))
-                    .frame(width: 116, height: 116)
-
-                if entry.totalMB > 0 && entry.usageRatio > 0.005 {
+                ZStack(alignment: .bottom) {
                     Circle()
-                        .trim(from: 0.5, to: 0.5 + max(0.01, entry.usageRatio * 0.5 - gap))
-                        .stroke(spentRed, style: StrokeStyle(lineWidth: 10, lineCap: .round))
+                        .trim(from: 0.5, to: 1.0)
+                        .stroke(trackGray, style: StrokeStyle(lineWidth: 10, lineCap: .round))
                         .frame(width: 116, height: 116)
-                }
 
-                if entry.totalMB > 0 && entry.usageRatio < 0.995 {
-                    Circle()
-                        .trim(from: 0.5 + min(0.49, entry.usageRatio * 0.5 + gap), to: 1.0)
-                        .stroke(brandGreen, style: StrokeStyle(lineWidth: 10, lineCap: .round))
-                        .frame(width: 116, height: 116)
-                }
+                    if entry.totalMB > 0 && entry.usageRatio > 0.005 {
+                        Circle()
+                            .trim(from: 0.5, to: 0.5 + max(0.01, entry.usageRatio * 0.5 - gap))
+                            .stroke(spentRed, style: StrokeStyle(lineWidth: 10, lineCap: .round))
+                            .frame(width: 116, height: 116)
+                    }
 
-                VStack(spacing: 1) {
-                    Text(String(format: "%.2f GB", entry.remainingGB))
-                        .font(.system(size: 19, weight: .bold))
-                        .foregroundStyle(.white)
-                        .minimumScaleFactor(0.75)
-                        .lineLimit(1)
-                    Text(String(format: "libres de %.1f GB", entry.totalGB))
-                        .font(.system(size: 9.5, weight: .medium))
-                        .foregroundStyle(subtitleGray)
-                        .lineLimit(1)
-                }
-                .padding(.bottom, 6)
-            }
-            .frame(maxWidth: .infinity)
-            .frame(height: 64, alignment: .top)
-            .clipped()
+                    if entry.totalMB > 0 && entry.usageRatio < 0.995 {
+                        Circle()
+                            .trim(from: 0.5 + min(0.49, entry.usageRatio * 0.5 + gap), to: 1.0)
+                            .stroke(brandGreen, style: StrokeStyle(lineWidth: 10, lineCap: .round))
+                            .frame(width: 116, height: 116)
+                    }
 
-            HStack {
-                Text("● \(spentShortText) (\(entry.percentUsed)%)")
-                    .foregroundStyle(spentRed)
-                Spacer()
-                Text("● \(dailyAllowanceText)")
-                    .foregroundStyle(brandGreen)
-            }
-            .font(.system(size: 9.5, weight: .semibold))
-            .lineLimit(1)
-            .minimumScaleFactor(0.75)
+                    VStack(spacing: 1) {
+                        Text(String(format: "%.2f GB", entry.remainingGB))
+                            .font(.system(size: 19, weight: .bold))
+                            .foregroundStyle(.white)
+                            .minimumScaleFactor(0.75)
+                            .lineLimit(1)
+                        Text(String(format: "libres de %.1f GB", entry.totalGB))
+                            .font(.system(size: 9.5, weight: .medium))
+                            .foregroundStyle(subtitleGray)
+                            .lineLimit(1)
+                    }
+                    .padding(.bottom, 6)
+                }
+                .frame(maxWidth: .infinity)
+                .frame(height: 64, alignment: .top)
+                .clipped()
+
+                HStack {
+                    Text("● \(spentShortText) (\(entry.percentUsed)%)")
+                        .foregroundStyle(spentRed)
+                    Spacer()
+                    Text("● \(dailyAllowanceText)")
+                        .foregroundStyle(brandGreen)
+                }
+                .font(.system(size: 9.5, weight: .semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
             }
         }
     }
