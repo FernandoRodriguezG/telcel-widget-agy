@@ -151,7 +151,7 @@ const telcelNoDaysLeft = parseTelcelResponse({
   blocks: {
     children: [
       { id: "tabs-plans-v2-container-0-0", children: [ { id: "tabs-plans-v2-card-0-0-0", type: "BLOCK" } ] },
-      { id: "plan-details-row-template-col-2-0-0", config: { value: "28 de octubre" } },
+      { id: "plan-details-row-template-col-2-0-0", config: { value: "15 de noviembre" } },
       { id: "text-plan-name", config: { value: "Telcel Libre" } },
       { id: "tabs-plans-v2-plan-name-0-0-0", config: { value: "Datos de mi plan" } },
       { id: "tabs-plans-v2-total-data-value-0-0-0", config: { value: "10" } },
@@ -435,7 +435,7 @@ globalThis.FileManager = {
 assert.equal(loadCache(), null);
 
 
-// Mock FileManager.local() to return JSON array (typeof [] === "object")
+// Mock FileManager.local() to return JSON array (typeof [] === "object"; must be rejected)
 globalThis.FileManager = {
   local: () => ({
     documentsDirectory: () => "/tmp",
@@ -444,9 +444,7 @@ globalThis.FileManager = {
     readString: () => "[1, 2, 3]"
   })
 };
-const arrayCache = loadCache();
-assert.equal(arrayCache.fromCache, true);
-assert.equal(arrayCache[0], 1);
+assert.equal(loadCache(), null);
 
 // Mock FileManager.local() to return valid JSON object (Happy path cache hit)
 globalThis.FileManager = {
