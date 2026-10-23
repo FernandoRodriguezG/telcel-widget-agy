@@ -185,6 +185,67 @@ assert.equal(telcelNoDaysLeft.totalMB, 10000);
 assert.equal(telcelNoDaysLeft.consumedMB, 9500);
 assert.equal(telcelNoDaysLeft.availableMB, 500);
 
+// Test parseTelcelResponse prevents double counting with responsive web-* duplicate blocks
+const telcelWithWebDuplicates = parseTelcelResponse({
+  blocks: {
+    children: [
+      { id: "text-plan-name", config: { value: "Telcel Libre 4" } },
+      { id: "plan-details-row-template-col-2-0-0", config: { value: "28 de octubre" } },
+      // Mobile blocks
+      { id: "tabs-plans-v2-plan-name-0-0-0", config: { value: "Datos de mi plan" } },
+      { id: "tabs-plans-v2-total-data-value-0-0-0", config: { value: "10" } },
+      { id: "tabs-plans-v2-total-data-unit-0-0-0", config: { value: "GB" } },
+      { id: "tabs-plans-v2-used-data-value-0-0-0", config: { value: "10" } },
+      { id: "tabs-plans-v2-used-data-unit-0-0-0", config: { value: "GB" } },
+      { id: "tabs-plans-v2-available-data-value-0-0-0", config: { value: "0" } },
+      { id: "tabs-plans-v2-available-data-unit-0-0-0", config: { value: "MB" } },
+      { id: "tabs-plans-v2-plan-name-0-1-0", config: { value: "PROMO 50% DE DATOS 24 MDP" } },
+      { id: "tabs-plans-v2-total-data-value-0-1-0", config: { value: "5" } },
+      { id: "tabs-plans-v2-total-data-unit-0-1-0", config: { value: "GB" } },
+      { id: "tabs-plans-v2-used-data-value-0-1-0", config: { value: "200" } },
+      { id: "tabs-plans-v2-used-data-unit-0-1-0", config: { value: "MB" } },
+      { id: "tabs-plans-v2-available-data-value-0-1-0", config: { value: "4800" } },
+      { id: "tabs-plans-v2-available-data-unit-0-1-0", config: { value: "MB" } },
+      // Web duplicate blocks (must be ignored when mobile blocks exist)
+      { id: "tabs-plans-v2-plan-name-web-0-0-0", config: { value: "Datos de mi plan" } },
+      { id: "tabs-plans-v2-total-data-value-web-0-0-0", config: { value: "10" } },
+      { id: "tabs-plans-v2-total-data-unit-web-0-0-0", config: { value: "GB" } },
+      { id: "tabs-plans-v2-used-data-value-web-0-0-0", config: { value: "10" } },
+      { id: "tabs-plans-v2-used-data-unit-web-0-0-0", config: { value: "GB" } },
+      { id: "tabs-plans-v2-available-data-value-web-0-0-0", config: { value: "0" } },
+      { id: "tabs-plans-v2-available-data-unit-web-0-0-0", config: { value: "MB" } },
+      { id: "tabs-plans-v2-plan-name-web-0-1-0", config: { value: "PROMO 50% DE DATOS 24 MDP" } },
+      { id: "tabs-plans-v2-total-data-value-web-0-1-0", config: { value: "5" } },
+      { id: "tabs-plans-v2-total-data-unit-web-0-1-0", config: { value: "GB" } },
+      { id: "tabs-plans-v2-used-data-value-web-0-1-0", config: { value: "200" } },
+      { id: "tabs-plans-v2-used-data-unit-web-0-1-0", config: { value: "MB" } },
+      { id: "tabs-plans-v2-available-data-value-web-0-1-0", config: { value: "4800" } },
+      { id: "tabs-plans-v2-available-data-unit-web-0-1-0", config: { value: "MB" } }
+    ]
+  }
+});
+assert.equal(telcelWithWebDuplicates.totalMB, 15000);
+assert.equal(telcelWithWebDuplicates.availableMB, 4800);
+assert.equal(telcelWithWebDuplicates.consumedMB, 10200);
+assert.equal(telcelWithWebDuplicates.buckets.length, 2);
+
+// Test parseTelcelResponse falls back to web-* blocks if mobile blocks are absent
+const telcelWebOnly = parseTelcelResponse({
+  blocks: {
+    children: [
+      { id: "text-plan-name", config: { value: "Telcel Libre" } },
+      { id: "tabs-plans-v2-plan-name-web-0-0-0", config: { value: "Datos Web" } },
+      { id: "tabs-plans-v2-total-data-value-web-0-0-0", config: { value: "10" } },
+      { id: "tabs-plans-v2-total-data-unit-web-0-0-0", config: { value: "GB" } },
+      { id: "tabs-plans-v2-available-data-value-web-0-0-0", config: { value: "6" } },
+      { id: "tabs-plans-v2-available-data-unit-web-0-0-0", config: { value: "GB" } }
+    ]
+  }
+});
+assert.equal(telcelWebOnly.totalMB, 10000);
+assert.equal(telcelWebOnly.availableMB, 6000);
+assert.equal(telcelWebOnly.buckets.length, 1);
+
 // 1b. Test Mi Bait parser & widget
 const baitNow = new Date(2026, 9, 20, 10, 9); // Oct 20, 2026 10:09 local
 const baitFixture = {
@@ -1364,6 +1425,43 @@ assert(TelcelUsageEntry.errorFallback.totalMB == 0)
 assert(TelcelUsageEntry.errorFallback.cutoffDate == "Verificar cuenta")
 assert(TelcelUsageEntry.errorFallback == TelcelUsageEntry.errorFallback)
 assert(entry != TelcelUsageEntry.errorFallback)
+
+// Verify Swift parser prevents double counting with web-* blocks and supports web-only fallback
+let webDupJson = #"""
+{"blocks":{"children":[
+  {"id":"text-plan-name","config":{"value":"Telcel Libre 4"}},
+  {"id":"tabs-plans-v2-plan-name-0-0-0","config":{"value":"Datos de mi plan"}},
+  {"id":"tabs-plans-v2-total-data-value-0-0-0","config":{"value":"10"}},
+  {"id":"tabs-plans-v2-total-data-unit-0-0-0","config":{"value":"GB"}},
+  {"id":"tabs-plans-v2-available-data-value-0-0-0","config":{"value":"4"}},
+  {"id":"tabs-plans-v2-available-data-unit-0-0-0","config":{"value":"GB"}},
+  {"id":"tabs-plans-v2-plan-name-web-0-0-0","config":{"value":"Datos de mi plan"}},
+  {"id":"tabs-plans-v2-total-data-value-web-0-0-0","config":{"value":"10"}},
+  {"id":"tabs-plans-v2-total-data-unit-web-0-0-0","config":{"value":"GB"}},
+  {"id":"tabs-plans-v2-available-data-value-web-0-0-0","config":{"value":"4"}},
+  {"id":"tabs-plans-v2-available-data-unit-web-0-0-0","config":{"value":"GB"}}
+]}}
+"""#.data(using: .utf8)!
+let webDupEntry = try TelcelNetworkService.parseHomeFlowJSON(webDupJson)
+assert(webDupEntry.totalMB == 10000)
+assert(webDupEntry.availableMB == 4000)
+assert(webDupEntry.buckets.count == 1)
+
+let webOnlyJson = #"""
+{"blocks":{"children":[
+  {"id":"text-plan-name","config":{"value":"Telcel Libre"}},
+  {"id":"tabs-plans-v2-plan-name-web-0-0-0","config":{"value":"Datos Web"}},
+  {"id":"tabs-plans-v2-total-data-value-web-0-0-0","config":{"value":"10"}},
+  {"id":"tabs-plans-v2-total-data-unit-web-0-0-0","config":{"value":"GB"}},
+  {"id":"tabs-plans-v2-available-data-value-web-0-0-0","config":{"value":"6"}},
+  {"id":"tabs-plans-v2-available-data-unit-web-0-0-0","config":{"value":"GB"}}
+]}}
+"""#.data(using: .utf8)!
+let webOnlyEntry = try TelcelNetworkService.parseHomeFlowJSON(webOnlyJson)
+assert(webOnlyEntry.totalMB == 10000)
+assert(webOnlyEntry.availableMB == 6000)
+assert(webOnlyEntry.buckets.count == 1)
+
 print("✅ Swift & JS parser tests passed!")
 `;
 

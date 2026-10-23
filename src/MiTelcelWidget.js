@@ -366,6 +366,7 @@ async function fetchTelcelData(creds) {
 function parseTelcelResponse(payload) {
   const byId = {};
   const suffixesSet = new Set();
+  const webSuffixesSet = new Set();
 
   const stack = [payload];
 
@@ -375,8 +376,10 @@ function parseTelcelResponse(payload) {
 
     if (typeof node.id === "string" && node.config) {
       byId[node.id] = node.config;
-      if (node.id.startsWith("tabs-plans-v2-plan-name-")) {
-        suffixesSet.add(node.id.slice(24));
+      const m = node.id.match(/^tabs-plans-v2-plan-name-(web-)?(\d+-\d+-\d+)$/);
+      if (m) {
+        if (m[1]) webSuffixesSet.add(m[1] + m[2]);
+        else suffixesSet.add(m[2]);
       }
     }
 
@@ -391,7 +394,8 @@ function parseTelcelResponse(payload) {
     }
   }
 
-  const suffixes = Array.from(suffixesSet).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  const activeSuffixes = suffixesSet.size ? suffixesSet : webSuffixesSet;
+  const suffixes = Array.from(activeSuffixes).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
 
   const toMB = (val, unit) => {
     if (val === undefined || val === null || val === "") return null;
