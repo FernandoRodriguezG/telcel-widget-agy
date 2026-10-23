@@ -71,7 +71,15 @@ Descarga la app gratuita **[Scriptable](https://apps.apple.com/app/scriptable/id
 > [!TIP]
 > Si el widget alguna vez pierde conexión o requiere renovar sesión (por ejemplo en Movistar), mostrará un estado de advertencia (`⚠️`) y al tocarlo se abrirá automáticamente en Scriptable para resolverlo en un toque.
 
-### 6. Restablecer credenciales o cambiar de línea (Resetear contraseña)
+### 6. ¿Cómo actualizar desde una versión anterior?
+Si ya tenías una versión previa del script instalada:
+1. Copia el nuevo código del script correspondiente desde [`src/`](src/).
+2. En Scriptable, abre tu script existente (`MiTelcel`, `MiBait`, etc.), selecciona todo el código anterior y reemplázalo por el nuevo.
+3. > [!IMPORTANT]
+   > **Paso indispensable:** Pulsa el botón **Play (▶)** abajo a la derecha para ejecutar el script dentro de la app por lo menos una vez. Esto regenera la caché local y revalida las credenciales. Si omites este paso, el widget en la pantalla de inicio se mostrará como un **recuadro blanco** debido a que iOS impide ejecutar flujos interactivos o de primera carga en segundo plano.
+4. Pulsa **Done** y el widget en tu pantalla de inicio se actualizará en unos segundos.
+
+### 7. Restablecer credenciales o cambiar de línea (Resetear contraseña)
 Gracias a la validación previa en vivo, el widget evita guardar credenciales o números inválidos durante la configuración inicial. Si cambiaste tu contraseña en el portal de la operadora, cambiaste de número o deseas registrar otra cuenta:
 1. Crea un nuevo script en Scriptable y nómbralo **`ResetearPassword`** (o **`resetear password`**).
 2. Pega el código de [`src/ResetearPassword.js`](src/ResetearPassword.js).
