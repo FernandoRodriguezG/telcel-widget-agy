@@ -163,7 +163,7 @@ assert.equal(createWidget(null).url, "scriptable:///run?scriptName=Mi%20Telcel")
 delete globalThis.Script;
 
 
-// Test parseTelcelResponse fallback for daysLeft
+// Test parseTelcelResponse fallback for daysLeft and mixed-case units (Gb, Kb)
 const telcelNoDaysLeft = parseTelcelResponse({
   blocks: {
     children: [
@@ -172,15 +172,18 @@ const telcelNoDaysLeft = parseTelcelResponse({
       { id: "text-plan-name", config: { value: "Telcel Libre" } },
       { id: "tabs-plans-v2-plan-name-0-0-0", config: { value: "Datos de mi plan" } },
       { id: "tabs-plans-v2-total-data-value-0-0-0", config: { value: "10" } },
-      { id: "tabs-plans-v2-total-data-unit-0-0-0", config: { value: "GB" } },
+      { id: "tabs-plans-v2-total-data-unit-0-0-0", config: { value: "Gb" } },
       { id: "tabs-plans-v2-used-data-value-0-0-0", config: { value: "9.5" } },
-      { id: "tabs-plans-v2-used-data-unit-0-0-0", config: { value: "GB" } },
-      { id: "tabs-plans-v2-available-data-value-0-0-0", config: { value: "500" } },
-      { id: "tabs-plans-v2-available-data-unit-0-0-0", config: { value: "MB" } }
+      { id: "tabs-plans-v2-used-data-unit-0-0-0", config: { value: "gb" } },
+      { id: "tabs-plans-v2-available-data-value-0-0-0", config: { value: "512000" } },
+      { id: "tabs-plans-v2-available-data-unit-0-0-0", config: { value: "Kb" } }
     ]
   }
 });
 assert.equal(telcelNoDaysLeft.daysLeft, 28);
+assert.equal(telcelNoDaysLeft.totalMB, 10000);
+assert.equal(telcelNoDaysLeft.consumedMB, 9500);
+assert.equal(telcelNoDaysLeft.availableMB, 500);
 
 // 1b. Test Mi Bait parser & widget
 const baitNow = new Date(2026, 9, 20, 10, 9); // Oct 20, 2026 10:09 local
@@ -786,9 +789,9 @@ const runReset = async (choice) => {
 };
 assert.deepEqual(await runReset(0), ["BAIT_PHONE", "MOVISTAR_PID", "MOVISTAR_GUARD_KEY", "ATT_PASS", "ATT_PHONE"]);
 assert.deepEqual(await runReset(1), ["TELCEL_PASS", "TELCEL_PHONE", "MOVISTAR_PID", "MOVISTAR_GUARD_KEY", "ATT_PASS", "ATT_PHONE"]);
-assert.deepEqual(await runReset(2), ["TELCEL_PASS", "TELCEL_PHONE", "BAIT_PHONE", "MOVISTAR_GUARD_KEY", "ATT_PASS", "ATT_PHONE"]);
+assert.deepEqual(await runReset(2), ["TELCEL_PASS", "TELCEL_PHONE", "BAIT_PHONE", "ATT_PASS", "ATT_PHONE"]);
 assert.deepEqual(await runReset(3), ["TELCEL_PASS", "TELCEL_PHONE", "BAIT_PHONE", "MOVISTAR_PID", "MOVISTAR_GUARD_KEY"]);
-assert.deepEqual(await runReset(4), ["MOVISTAR_GUARD_KEY"]);
+assert.deepEqual(await runReset(4), []);
 assert.equal((await runReset(-1)).length, 7);
 
 
@@ -1325,8 +1328,8 @@ extension TelcelNetworkService {
         MockURLProtocol.requestHandler = { request in
             requestCount += 1
             let bodyString = String(data: request.httpBody ?? Data(), encoding: .utf8)
-            // URLComponents percent encodes =, &, space, and % (preserves + in query)
-            assert(bodyString == "token=token+%3D%26%20weird%25chars&token_type=revoke")
+            // URLComponents percent encodes =, &, space, and %; replacingOccurrences encodes + to %2B
+            assert(bodyString == "token=token%2B%3D%26%20weird%25chars&token_type=revoke")
             return (HTTPURLResponse(), Data())
         }
         await revokeSSOToken("token+=& weird%chars", session: session)
@@ -1442,3 +1445,6 @@ try {
     }
   }
 }
+
+// 4. Performance benchmark verification
+await import("./test_performance.mjs");

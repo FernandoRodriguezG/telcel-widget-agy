@@ -1,6 +1,6 @@
-# Widgets de Consumo Móvil para iOS y Android (Telcel, Bait y Movistar)
+# Widgets de Consumo Móvil para iOS y Android (Telcel, Bait, Movistar y AT&T)
 
-Widgets para iOS que muestran en tiempo real los **GB disponibles combinados (Plan Base + Datos Promocionales)**, el **consumo acumulado**, los **días restantes** y la **siguiente fecha de corte/vigencia** de tu línea **Mi Telcel**, **Mi Bait** o **Mi Movistar**.
+Widgets para iOS que muestran en tiempo real los **GB disponibles combinados (Plan Base + Datos Promocionales)**, el **consumo acumulado**, los **días restantes** y la **siguiente fecha de corte/vigencia** de tu línea **Mi Telcel**, **Mi Bait**, **Mi Movistar** o **Mi AT&T**.
 
 <p align="center">
   <img src="assets/widget_preview.png" alt="Mi Telcel Widget Preview" width="280">
@@ -10,7 +10,7 @@ Widgets para iOS que muestran en tiempo real los **GB disponibles combinados (Pl
 
 ## Características
 
-- **Soporte multi-operador (Scriptable):** Scripts independientes y listos para usar en [`src/MiTelcelWidget.js`](src/MiTelcelWidget.js) (**Telcel**), [`src/MiBaitWidget.js`](src/MiBaitWidget.js) (**Bait**, consulta directa sin contraseña) y [`src/MiMovistarWidget.js`](src/MiMovistarWidget.js) (**Movistar**, login interactivo con WebView por reCAPTCHA v3 y desencriptado AES-256-GCM).
+- **Soporte multi-operador (Scriptable):** Scripts independientes y listos para usar en [`src/MiTelcelWidget.js`](src/MiTelcelWidget.js) (**Telcel**), [`src/MiBaitWidget.js`](src/MiBaitWidget.js) (**Bait**, consulta directa sin contraseña), [`src/MiMovistarWidget.js`](src/MiMovistarWidget.js) (**Movistar**, login interactivo con WebView por reCAPTCHA v3 y desencriptado AES-256-GCM) y [`src/MiATTWidget.js`](src/MiATTWidget.js) (**AT&T**, autenticación con cifrado CryptoJS AES-256-CBC).
 - **Validación interactiva de credenciales:** Valida tus credenciales en vivo contra la API del operador antes de guardarlas en el Keychain; detecta errores de captura y problemas de conectividad con reintento guiado.
 - **Suma inteligente de bolsas:** Combina automáticamente los datos del Plan Base y los Datos Promocionales/Bonos vigentes en una sola pasada eficiente.
 - **Fecha de corte y vigencia:** Muestra los días restantes y la fecha de corte o vigencia exacta reportada por el operador (recalculada dinámicamente al leer desde caché).
@@ -36,22 +36,24 @@ Descarga la app gratuita **[Scriptable](https://apps.apple.com/app/scriptable/id
    - **Telcel:** [`src/MiTelcelWidget.js`](src/MiTelcelWidget.js)
    - **Bait:** [`src/MiBaitWidget.js`](src/MiBaitWidget.js)
    - **Movistar:** [`src/MiMovistarWidget.js`](src/MiMovistarWidget.js)
+   - **AT&T:** [`src/MiATTWidget.js`](src/MiATTWidget.js)
 2. Copia todo su contenido al portapapeles de tu iPhone (puedes usar el Portapapeles Universal de Apple, AirDrop, o enviártelo por mensaje).
 
 ### 3. Crear el script en Scriptable
 1. Abre **Scriptable** en tu iPhone.
 2. Pulsa el botón **`+`** en la esquina superior derecha para crear un nuevo script.
-3. Toca el título en la parte superior (dice *Untitled Script*) y cámbialo a **`MiTelcel`**, **`MiBait`** o **`MiMovistar`**.
+3. Toca el título en la parte superior (dice *Untitled Script*) y cámbialo a **`MiTelcel`**, **`MiBait`**, **`MiMovistar`** o **`MiATT`**.
 4. Pega el código copiado dentro del editor.
 5. Pulsa **Done** en la esquina superior izquierda.
 
 ### 4. Configurar tus datos por primera vez
-1. Abre nuevamente el script (**MiTelcel**, **MiBait** o **MiMovistar**) dentro de Scriptable.
+1. Abre nuevamente el script (**MiTelcel**, **MiBait**, **MiMovistar** o **MiATT**) dentro de Scriptable.
 2. Pulsa el botón **Play (▶)** en la esquina inferior derecha.
 3. Se iniciará la configuración guiada con **validación previa en vivo**:
    - **En Mi Telcel:** Ingresa tu **número a 10 dígitos** y tu **contraseña de Mi Telcel**. El script valida la autenticación ante el servicio SSO oficial (y revoca de inmediato el token de prueba) antes de guardar los datos en Keychain.
    - **En Mi Bait:** Ingresa únicamente tu **número Bait a 10 dígitos** (no requiere contraseña). Se verifica la línea contra el API de Altán antes de guardarla.
    - **En Mi Movistar:** Se abrirá una ventana de navegador (WebView) en `mi.movistar.com.mx/login`. Inicia sesión normalmente para superar el reCAPTCHA v3; el widget capturará el token `p_id` (`ec_auth`), validará el acceso al consumo con su llave `guardKey` y lo guardará en el Keychain para las siguientes actualizaciones en segundo plano.
+   - **En Mi AT&T:** Ingresa tu **número a 10 dígitos** y tu **contraseña de Mi AT&T**. El script valida tus credenciales contra `miattweb.att.com.mx` antes de guardarlas en el Keychain.
 4. Si ingresaste un dato incorrecto o hay una falla de red, el script te avisará de inmediato y te permitirá reintentar sin guardar credenciales inválidas.
 5. Tras la validación, el script ejecutará la consulta y mostrará la vista previa del widget. Pulsa **Done**.
 
@@ -62,7 +64,7 @@ Descarga la app gratuita **[Scriptable](https://apps.apple.com/app/scriptable/id
 4. Busca y selecciona **Scriptable**.
 5. Elige el tamaño **Pequeño (Small)** y toca **Agregar widget**.
 6. Mientras los íconos sigan temblando, toca el widget recién agregado (o mantenlo presionado y selecciona **Editar widget**).
-7. En el campo **Script**, selecciona **`MiTelcel`**, **`MiBait`** o **`MiMovistar`**.
+7. En el campo **Script**, selecciona **`MiTelcel`**, **`MiBait`**, **`MiMovistar`** o **`MiATT`**.
 8. En **When Interacting** (Al interactuar), selecciona **Run Script** (Ejecutar script).
 9. Toca fuera del widget para guardar. ¡Listo! El widget se actualizará periódicamente.
 
@@ -76,8 +78,9 @@ Gracias a la validación previa en vivo, el widget evita guardar credenciales o 
 3. Ejecútalo pulsando **Play (▶)** y elige el operador a restablecer (o **Todos**):
    - **Mi Telcel:** borra `TELCEL_PHONE` y `TELCEL_PASS`.
    - **Mi Bait:** borra `BAIT_PHONE`.
-   - **Mi Movistar:** borra el token de sesión `MOVISTAR_PID`.
-4. Vuelve a abrir el script del operador (**`MiTelcel`**, **`MiBait`** o **`MiMovistar`**) y pulsa **Play (▶)** para ingresar tus nuevos datos (en Movistar se abrirá otra vez el login en WebView).
+   - **Mi Movistar:** borra el token de sesión `MOVISTAR_PID` y su llave `MOVISTAR_GUARD_KEY`.
+   - **Mi AT&T:** borra `ATT_PHONE` y `ATT_PASS`.
+4. Vuelve a abrir el script del operador (**`MiTelcel`**, **`MiBait`**, **`MiMovistar`** o **`MiATT`**) y pulsa **Play (▶)** para ingresar tus nuevos datos (en Movistar se abrirá otra vez el login en WebView).
 
 ---
 
@@ -147,9 +150,11 @@ Puedes probar las llamadas reales y verificar el formato devuelto por Mi Telcel 
 │   ├── MiTelcelWidget.js           # Widget autónomo Mi Telcel para Scriptable (iOS)
 │   ├── MiBaitWidget.js             # Widget autónomo Mi Bait para Scriptable (iOS)
 │   ├── MiMovistarWidget.js         # Widget autónomo Mi Movistar para Scriptable (iOS)
-│   └── ResetearPassword.js         # Script para limpiar credenciales de Telcel, Bait o Movistar en Keychain
+│   ├── MiATTWidget.js              # Widget autónomo Mi AT&T para Scriptable (iOS)
+│   └── ResetearPassword.js         # Script para limpiar credenciales de operadores en Keychain
 ├── tests/
-│   └── test_parser.mjs             # Suite de pruebas unitarias (Telcel, Bait, Movistar, Keychain, UI y Swift)
+│   ├── test_parser.mjs             # Suite de pruebas unitarias (Telcel, Bait, Movistar, Keychain, UI y Swift)
+│   └── test_att.mjs                # Pruebas criptográficas y parser de Mi AT&T
 ├── android/
 │   ├── mitelcel_widget.mjs         # Prototipo Node.js para Mi Telcel (Termux / KWGT)
 │   ├── mibait_widget.mjs           # Prototipo Node.js para Mi Bait (Termux / KWGT)
