@@ -1425,6 +1425,9 @@ assert(TelcelUsageEntry.errorFallback.totalMB == 0)
 assert(TelcelUsageEntry.errorFallback.cutoffDate == "Verificar cuenta")
 assert(TelcelUsageEntry.errorFallback == TelcelUsageEntry.errorFallback)
 assert(entry != TelcelUsageEntry.errorFallback)
+assert(TelcelUsageEntry.errorFallback.isError)
+assert(TelcelUsageEntry.errorFallback(for: .bait).isError)
+assert(!entry.isError)
 
 // Verify Swift parser prevents double counting with web-* blocks and supports web-only fallback
 let webDupJson = #"""
@@ -1609,6 +1612,10 @@ let attPlain = "Swift AT&T Crypto Test Payload"
 let attCipher = try TelcelNetworkService.aesEncryptATT(text: attPlain, password: "test-secret-key")
 let attDecrypted = try TelcelNetworkService.aesDecryptATT(base64: attCipher, password: "test-secret-key")
 assert(attDecrypted == attPlain)
+
+// Swift Movistar Crypto Test
+let movPlain = try TelcelNetworkService.decryptMovistarContent(payload: "${cipherPayload}", guardKey: "${staticKey}")
+assert(movPlain.contains("Movistar Libre"))
 
 print("✅ Swift & JS parser tests passed!")
 `;

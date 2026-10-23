@@ -35,7 +35,7 @@ struct ContentView: View {
                     // Preview Card del Widget
                     VStack(alignment: .leading, spacing: 0) {
                         MiTelcelWidgetCardContent(entry: entry)
-                        if entry != .errorFallback {
+                        if !entry.isError {
                             Spacer(minLength: 8)
                             Text(entry.footerText)
                                 .font(.system(size: 11))

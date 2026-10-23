@@ -19,6 +19,10 @@ public enum CarrierIntentChoice: String, AppEnum {
         .att: "AT&T",
         .movistar: "Movistar"
     ]
+
+    public var mobileCarrier: MobileCarrier? {
+        MobileCarrier(rawValue: rawValue)
+    }
 }
 
 // MARK: - 1. AppIntents para Configuración y Recarga Interactiva desde el Widget (iOS 17+)
@@ -39,8 +43,17 @@ struct TelcelWidgetConfigIntent: WidgetConfigurationIntent {
 struct RefreshTelcelUsageIntent: AppIntent {
     static var title: LocalizedStringResource = "Actualizar Consumo"
 
+    @Parameter(title: "Operador")
+    var carrier: String?
+
+    init() {}
+    init(carrier: String?) {
+        self.carrier = carrier
+    }
+
     func perform() async throws -> some IntentResult {
-        _ = await TelcelNetworkService.shared.fetchUsage(forceRefresh: true)
+        let c = carrier.flatMap { MobileCarrier(rawValue: $0) }
+        _ = await TelcelNetworkService.shared.fetchUsage(carrier: c, forceRefresh: true)
         WidgetCenter.shared.reloadTimelines(ofKind: "MiTelcelUsageWidget")
         return .result()
     }
@@ -53,30 +66,12 @@ struct MiTelcelTimelineProvider: AppIntentTimelineProvider {
     }
 
     func snapshot(for configuration: TelcelWidgetConfigIntent, in context: Context) async -> TelcelUsageEntry {
-        let c: MobileCarrier? = {
-            switch configuration.carrier {
-            case .telcel: return .telcel
-            case .bait: return .bait
-            case .att: return .att
-            case .movistar: return .movistar
-            case .auto: return nil
-            }
-        }()
-        return TelcelUsageEntry.sample(for: c ?? TelcelNetworkService.selectedCarrier)
+        TelcelUsageEntry.sample(for: configuration.carrier.mobileCarrier ?? TelcelNetworkService.selectedCarrier)
     }
 
     func timeline(for configuration: TelcelWidgetConfigIntent, in context: Context) async -> Timeline<TelcelUsageEntry> {
-        let c: MobileCarrier? = {
-            switch configuration.carrier {
-            case .telcel: return .telcel
-            case .bait: return .bait
-            case .att: return .att
-            case .movistar: return .movistar
-            case .auto: return nil
-            }
-        }()
         let entry = await TelcelNetworkService.shared.fetchUsage(
-            carrier: c,
+            carrier: configuration.carrier.mobileCarrier,
             overridePhone: configuration.phone,
             overridePassword: configuration.passwordOrToken,
             overrideToken: configuration.passwordOrToken
@@ -98,10 +93,10 @@ public struct MiTelcelWidgetView: View {
         VStack(alignment: .leading, spacing: 0) {
             MiTelcelWidgetCardContent(entry: entry)
 
-            if entry != .errorFallback {
+            if !entry.isError {
                 Spacer(minLength: 8)
 
-                Button(intent: RefreshTelcelUsageIntent()) {
+                Button(intent: RefreshTelcelUsageIntent(carrier: entry.carrier)) {
                     Text(entry.footerText)
                         .font(.system(size: 11, weight: .regular))
                         .foregroundStyle(Color(red: 0.60, green: 0.60, blue: 0.62))

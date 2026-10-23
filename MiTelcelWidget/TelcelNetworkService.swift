@@ -106,6 +106,10 @@ public struct TelcelUsageEntry: Codable, Equatable, Sendable {
         carrier.lowercased() == "telcel" ? 1000.0 : 1024.0
     }
 
+    public var isError: Bool {
+        date == .distantPast
+    }
+
     public var hasPromo: Bool {
         buckets.count > 1
     }
@@ -352,7 +356,7 @@ public actor TelcelNetworkService {
     }
 
     private static func migrateKeychainAccessibilityIfNeeded() {
-        let keys = ["telcel_phone", "telcel_pass", "bait_phone", "att_phone", "att_pass", "movistar_pid"]
+        let keys = ["telcel_phone", "telcel_pass", "bait_phone", "att_phone", "att_pass", "movistar_pid", "movistar_guard_key"]
         let migratedKey = "keychain_accessibility_migrated_v2"
         if sharedDefaults.bool(forKey: migratedKey) { return }
 
@@ -394,7 +398,7 @@ public actor TelcelNetworkService {
             let pass = getKeychain("att_pass") ?? env["ATT_PASS"] ?? ""
             return CarrierCredentials(phone: normalizePhone(rawPhone), password: pass, token: "")
         case .movistar:
-            let token = getKeychain("movistar_pid") ?? defaults.string(forKey: "movistar_pid") ?? env["MOVISTAR_PID"] ?? ""
+            let token = getKeychain("movistar_pid") ?? env["MOVISTAR_PID"] ?? ""
             return CarrierCredentials(phone: "", password: "", token: token)
         }
     }
@@ -423,17 +427,8 @@ public actor TelcelNetworkService {
         case .movistar:
             let cleanToken = token.trimmingCharacters(in: .whitespacesAndNewlines)
             setKeychain("movistar_pid", cleanToken)
-            sharedDefaults.set(cleanToken, forKey: "movistar_pid")
+            sharedDefaults.removeObject(forKey: "movistar_pid")
         }
-    }
-
-    public static func loadCredentials() -> (phone: String, password: String) {
-        let c = loadCredentials(for: .telcel)
-        return (c.phone, c.password)
-    }
-
-    public static func saveCredentials(phone: String, password: String) {
-        saveCredentials(for: .telcel, phone: phone, password: password)
     }
 
     // MARK: - Date Formatting Helpers
@@ -496,7 +491,34 @@ public actor TelcelNetworkService {
     }
 
     // MARK: - Crypto Helpers (Movistar AES-256-GCM & AT&T AES-256-CBC)
-    public static func decryptMovistarContent(payload: String, guardKey: String = "03818954072261267933921453028068") throws -> String {
+    public static func loadMovistarGuardKey() -> String {
+        getKeychain("movistar_guard_key")
+            ?? ProcessInfo.processInfo.environment["MOVISTAR_GUARD_KEY"]
+            ?? "03818954072261267933921453028068"
+    }
+
+    public static func fetchMovistarGuardKey(session: URLSession = .shared) async -> String? {
+        guard let url = URL(string: "https://mi.movistar.com.mx/login") else { return nil }
+        var req = URLRequest(url: url)
+        req.setValue("text/html", forHTTPHeaderField: "Accept")
+        guard let (data, resp) = try? await session.data(for: req),
+              (resp as? HTTPURLResponse)?.statusCode == 200,
+              let html = String(data: data, encoding: .utf8),
+              let regex = try? NSRegularExpression(pattern: #"guardString\s*=\s*["']([^"']+)["']"#),
+              let match = regex.firstMatch(in: html, range: NSRange(location: 0, length: html.utf16.count)),
+              let range = Range(match.range(at: 1), in: html) else {
+            return nil
+        }
+        let b64 = String(html[range])
+        guard let keyData = Data(base64Encoded: b64),
+              let key = String(data: keyData, encoding: .utf8), key.count == 32 else {
+            return nil
+        }
+        setKeychain("movistar_guard_key", key)
+        return key
+    }
+
+    public static func decryptMovistarContent(payload: String, guardKey: String = loadMovistarGuardKey()) throws -> String {
         let parts = payload.components(separatedBy: ":")
         guard parts.count == 2, !parts[0].isEmpty, !parts[1].isEmpty else {
             throw URLError(.cannotDecodeContentData)
@@ -645,37 +667,37 @@ public actor TelcelNetworkService {
                 guard phone.count == 10, !password.isEmpty else {
                     return loadCache(for: .telcel) ?? .errorFallback(for: .telcel)
                 }
+                result = try await fetchTelcelUsage(phone: phone, password: password, session: session)
                 if oPhone.count == 10, !oPass.isEmpty {
                     Self.saveCredentials(for: .telcel, phone: oPhone, password: oPass)
                 }
-                result = try await fetchTelcelUsage(phone: phone, password: password, session: session)
 
             case .bait:
                 guard phone.count == 10 else {
                     return loadCache(for: .bait) ?? .errorFallback(for: .bait)
                 }
+                result = try await fetchBaitUsage(phone: phone, session: session)
                 if oPhone.count == 10 {
                     Self.saveCredentials(for: .bait, phone: oPhone)
                 }
-                result = try await fetchBaitUsage(phone: phone, session: session)
 
             case .att:
                 guard phone.count == 10, !password.isEmpty else {
                     return loadCache(for: .att) ?? .errorFallback(for: .att)
                 }
+                result = try await fetchATTUsage(phone: phone, password: password, session: session)
                 if oPhone.count == 10, !oPass.isEmpty {
                     Self.saveCredentials(for: .att, phone: oPhone, password: oPass)
                 }
-                result = try await fetchATTUsage(phone: phone, password: password, session: session)
 
             case .movistar:
                 guard !token.isEmpty else {
                     return loadCache(for: .movistar) ?? .errorFallback(for: .movistar)
                 }
+                result = try await fetchMovistarUsage(pid: token, session: session)
                 if !oToken.isEmpty {
                     Self.saveCredentials(for: .movistar, token: oToken)
                 }
-                result = try await fetchMovistarUsage(pid: token, session: session)
             }
 
             saveCache(result, for: resolvedCarrier)
@@ -688,95 +710,98 @@ public actor TelcelNetworkService {
     // MARK: - Telcel Fetch Flow (SSO + B2F JWT + Wave B2F Home Flow)
     private func fetchTelcelUsage(phone: String, password: String, session: URLSession) async throws -> TelcelUsageEntry {
         var ssoToken: String?
-        defer {
-            if let token = ssoToken {
-                Task {
-                    await Self.revokeSSOToken(token, session: session)
-                }
+        do {
+            // 1. Login SSO en wbl.telcel-id.com:8443/login
+            var loginReq = URLRequest(url: URL(string: "https://wbl.telcel-id.com:8443/login")!)
+            loginReq.httpMethod = "POST"
+            loginReq.setValue("https://wbl.telcel-id.com:8443", forHTTPHeaderField: "Origin")
+            loginReq.setValue("https://wbl.telcel-id.com:8443/login?sitedomain=https://www.mitelcel.com&CCode=52&Type=MSISDN&Invocation=iFrame", forHTTPHeaderField: "Referer")
+            loginReq.setValue("application/x-www-form-urlencoded; charset=UTF-8", forHTTPHeaderField: "Content-Type")
+            loginReq.setValue("XMLHttpRequest", forHTTPHeaderField: "X-Requested-With")
+            loginReq.setValue(ua, forHTTPHeaderField: "User-Agent")
+
+            let passClean = password.filter { !$0.isWhitespace }
+            let passB64 = Data(passClean.utf8).base64EncodedString()
+            var comps = URLComponents()
+            comps.queryItems = [
+                URLQueryItem(name: "username", value: phone),
+                URLQueryItem(name: "telcel-pass", value: password),
+                URLQueryItem(name: "sitedomain", value: "https://www.mitelcel.com"),
+                URLQueryItem(name: "CCode", value: "52"),
+                URLQueryItem(name: "Type", value: "MSISDN"),
+                URLQueryItem(name: "Invocation", value: "iFrame"),
+                URLQueryItem(name: "MSISDN", value: phone),
+                URLQueryItem(name: "Source", value: ""),
+                URLQueryItem(name: "pB64", value: passB64),
+                URLQueryItem(name: "url", value: "https://wbl.telcel-id.com:8443")
+            ]
+            loginReq.httpBody = comps.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B").data(using: .utf8)
+
+            let (loginData, _) = try await session.data(for: loginReq)
+            guard let loginObj = try JSONSerialization.jsonObject(with: loginData) as? [String: Any],
+                  let token = loginObj["token"] as? String else {
+                throw URLError(.userAuthenticationRequired)
             }
+            ssoToken = token
+
+            // 2. Intercambio de Token SSO -> B2F JWT
+            var tokenComps = URLComponents(string: "https://mi-telcel.smapps.mx/security/1.0.0/v2/token")!
+            tokenComps.queryItems = [
+                URLQueryItem(name: "user", value: phone),
+                URLQueryItem(name: "token", value: token)
+            ]
+            var tokenReq = URLRequest(url: tokenComps.url!)
+            let dynamicBasic = await fetchDynamicMtlBasic()
+            tokenReq.setValue("Basic \(dynamicBasic)", forHTTPHeaderField: "Authorization")
+            tokenReq.setValue("token:mit|token:b2f", forHTTPHeaderField: "scope")
+            tokenReq.setValue("application/json", forHTTPHeaderField: "Accept")
+            tokenReq.setValue("0.14", forHTTPHeaderField: "App-Version")
+            tokenReq.setValue("38", forHTTPHeaderField: "Code-Version")
+            tokenReq.setValue("DSK", forHTTPHeaderField: "Device-Id")
+            tokenReq.setValue("1", forHTTPHeaderField: "tipoRequest")
+            tokenReq.setValue("WEB", forHTTPHeaderField: "Os")
+            tokenReq.setValue("13", forHTTPHeaderField: "Os-Version")
+            tokenReq.setValue("web-browser", forHTTPHeaderField: "X-Channel")
+            tokenReq.setValue("ktor-client", forHTTPHeaderField: "User-Agent")
+
+            let (tokenData, _) = try await session.data(for: tokenReq)
+            guard let tokenRoot = try JSONSerialization.jsonObject(with: tokenData) as? [String: Any],
+                  let tokenResp = tokenRoot["tokenResponse"] as? [String: Any],
+                  let tokens = tokenResp["tokens"] as? [[String: Any]],
+                  let b2fToken = tokens.first(where: { ($0["id"] as? String) == "token:b2f" })?["access_token"] as? String else {
+                throw URLError(.cannotParseResponse)
+            }
+
+            // 3. Consulta de Home Flow (Wave B2F: Plan Base + Datos Promocionales + Fecha de Corte)
+            var homeComps = URLComponents(string: "https://api.journeys.telcel.wavebybemobi.com/api/components/flow/home")!
+            homeComps.queryItems = [URLQueryItem(name: "externalCode", value: "52\(phone)")]
+            guard let homeURL = homeComps.url else { throw URLError(.badURL) }
+            var homeReq = URLRequest(url: homeURL)
+            homeReq.setValue("Bearer \(b2fToken)", forHTTPHeaderField: "Authorization")
+            homeReq.setValue("application/json", forHTTPHeaderField: "Accept")
+            homeReq.setValue("false", forHTTPHeaderField: "X-Is-iPad")
+            homeReq.setValue("WEB", forHTTPHeaderField: "x-wave-sdk")
+            homeReq.setValue("Desktop", forHTTPHeaderField: "x-wave-device")
+            homeReq.setValue("browser", forHTTPHeaderField: "x-wave-device-type")
+            homeReq.setValue("macos-web", forHTTPHeaderField: "x-wave-os")
+            homeReq.setValue("10.15.7", forHTTPHeaderField: "x-wave-os-version")
+            homeReq.setValue(ua, forHTTPHeaderField: "User-Agent")
+
+            let (homeData, homeResp) = try await session.data(for: homeReq)
+            guard (homeResp as? HTTPURLResponse)?.statusCode == 200 else {
+                throw URLError(.badServerResponse)
+            }
+            let entry = try Self.parseHomeFlowJSON(homeData)
+            if let ssoToken {
+                await Self.revokeSSOToken(ssoToken, session: session)
+            }
+            return entry
+        } catch {
+            if let ssoToken {
+                await Self.revokeSSOToken(ssoToken, session: session)
+            }
+            throw error
         }
-
-        // 1. Login SSO en wbl.telcel-id.com:8443/login
-        var loginReq = URLRequest(url: URL(string: "https://wbl.telcel-id.com:8443/login")!)
-        loginReq.httpMethod = "POST"
-        loginReq.setValue("https://wbl.telcel-id.com:8443", forHTTPHeaderField: "Origin")
-        loginReq.setValue("https://wbl.telcel-id.com:8443/login?sitedomain=https://www.mitelcel.com&CCode=52&Type=MSISDN&Invocation=iFrame", forHTTPHeaderField: "Referer")
-        loginReq.setValue("application/x-www-form-urlencoded; charset=UTF-8", forHTTPHeaderField: "Content-Type")
-        loginReq.setValue("XMLHttpRequest", forHTTPHeaderField: "X-Requested-With")
-        loginReq.setValue(ua, forHTTPHeaderField: "User-Agent")
-
-        let passClean = password.filter { !$0.isWhitespace }
-        let passB64 = Data(passClean.utf8).base64EncodedString()
-        var comps = URLComponents()
-        comps.queryItems = [
-            URLQueryItem(name: "username", value: phone),
-            URLQueryItem(name: "telcel-pass", value: password),
-            URLQueryItem(name: "sitedomain", value: "https://www.mitelcel.com"),
-            URLQueryItem(name: "CCode", value: "52"),
-            URLQueryItem(name: "Type", value: "MSISDN"),
-            URLQueryItem(name: "Invocation", value: "iFrame"),
-            URLQueryItem(name: "MSISDN", value: phone),
-            URLQueryItem(name: "Source", value: ""),
-            URLQueryItem(name: "pB64", value: passB64),
-            URLQueryItem(name: "url", value: "https://wbl.telcel-id.com:8443")
-        ]
-        loginReq.httpBody = comps.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B").data(using: .utf8)
-
-        let (loginData, _) = try await session.data(for: loginReq)
-        guard let loginObj = try JSONSerialization.jsonObject(with: loginData) as? [String: Any],
-              let token = loginObj["token"] as? String else {
-            throw URLError(.userAuthenticationRequired)
-        }
-        ssoToken = token
-
-        // 2. Intercambio de Token SSO -> B2F JWT
-        var tokenComps = URLComponents(string: "https://mi-telcel.smapps.mx/security/1.0.0/v2/token")!
-        tokenComps.queryItems = [
-            URLQueryItem(name: "user", value: phone),
-            URLQueryItem(name: "token", value: token)
-        ]
-        var tokenReq = URLRequest(url: tokenComps.url!)
-        let dynamicBasic = await fetchDynamicMtlBasic()
-        tokenReq.setValue("Basic \(dynamicBasic)", forHTTPHeaderField: "Authorization")
-        tokenReq.setValue("token:mit|token:b2f", forHTTPHeaderField: "scope")
-        tokenReq.setValue("application/json", forHTTPHeaderField: "Accept")
-        tokenReq.setValue("0.14", forHTTPHeaderField: "App-Version")
-        tokenReq.setValue("38", forHTTPHeaderField: "Code-Version")
-        tokenReq.setValue("DSK", forHTTPHeaderField: "Device-Id")
-        tokenReq.setValue("1", forHTTPHeaderField: "tipoRequest")
-        tokenReq.setValue("WEB", forHTTPHeaderField: "Os")
-        tokenReq.setValue("13", forHTTPHeaderField: "Os-Version")
-        tokenReq.setValue("web-browser", forHTTPHeaderField: "X-Channel")
-        tokenReq.setValue("ktor-client", forHTTPHeaderField: "User-Agent")
-
-        let (tokenData, _) = try await session.data(for: tokenReq)
-        guard let tokenRoot = try JSONSerialization.jsonObject(with: tokenData) as? [String: Any],
-              let tokenResp = tokenRoot["tokenResponse"] as? [String: Any],
-              let tokens = tokenResp["tokens"] as? [[String: Any]],
-              let b2fToken = tokens.first(where: { ($0["id"] as? String) == "token:b2f" })?["access_token"] as? String else {
-            throw URLError(.cannotParseResponse)
-        }
-
-        // 3. Consulta de Home Flow (Wave B2F: Plan Base + Datos Promocionales + Fecha de Corte)
-        var homeComps = URLComponents(string: "https://api.journeys.telcel.wavebybemobi.com/api/components/flow/home")!
-        homeComps.queryItems = [URLQueryItem(name: "externalCode", value: "52\(phone)")]
-        guard let homeURL = homeComps.url else { throw URLError(.badURL) }
-        var homeReq = URLRequest(url: homeURL)
-        homeReq.setValue("Bearer \(b2fToken)", forHTTPHeaderField: "Authorization")
-        homeReq.setValue("application/json", forHTTPHeaderField: "Accept")
-        homeReq.setValue("false", forHTTPHeaderField: "X-Is-iPad")
-        homeReq.setValue("WEB", forHTTPHeaderField: "x-wave-sdk")
-        homeReq.setValue("Desktop", forHTTPHeaderField: "x-wave-device")
-        homeReq.setValue("browser", forHTTPHeaderField: "x-wave-device-type")
-        homeReq.setValue("macos-web", forHTTPHeaderField: "x-wave-os")
-        homeReq.setValue("10.15.7", forHTTPHeaderField: "x-wave-os-version")
-        homeReq.setValue(ua, forHTTPHeaderField: "User-Agent")
-
-        let (homeData, homeResp) = try await session.data(for: homeReq)
-        guard (homeResp as? HTTPURLResponse)?.statusCode == 200 else {
-            throw URLError(.badServerResponse)
-        }
-        return try Self.parseHomeFlowJSON(homeData)
     }
 
     static func revokeSSOToken(_ token: String, session: URLSession) async {
@@ -824,7 +849,15 @@ public actor TelcelNetworkService {
               let content = json["content"] as? String else {
             throw URLError(.badServerResponse)
         }
-        let decrypted = try Self.decryptMovistarContent(payload: content)
+        let currentKey = Self.loadMovistarGuardKey()
+        let decrypted: String
+        if let direct = try? Self.decryptMovistarContent(payload: content, guardKey: currentKey) {
+            decrypted = direct
+        } else if let refreshedKey = await Self.fetchMovistarGuardKey(session: session) {
+            decrypted = try Self.decryptMovistarContent(payload: content, guardKey: refreshedKey)
+        } else {
+            decrypted = try Self.decryptMovistarContent(payload: content, guardKey: currentKey)
+        }
         guard let decData = decrypted.data(using: .utf8) else {
             throw URLError(.cannotDecodeContentData)
         }
@@ -1406,15 +1439,6 @@ public actor TelcelNetworkService {
             carrier: cached.carrier
         )
     }
-
-    private func saveCache(_ entry: TelcelUsageEntry) {
-        let c = MobileCarrier(rawValue: entry.carrier.lowercased()) ?? .telcel
-        saveCache(entry, for: c)
-    }
-
-    public func loadCache(maxAge: TimeInterval? = nil) -> TelcelUsageEntry? {
-        loadCache(for: Self.selectedCarrier, maxAge: maxAge)
-    }
 }
 
 // MARK: - 5. Componente Visual de Widget SwiftUI (Bicolor Semi-Arco)
@@ -1454,19 +1478,19 @@ public struct MiTelcelWidgetCardContent: View {
 
     private var dailyAllowanceText: String {
         let dailyMB = max(0, entry.availableMB) / Double(max(1, entry.daysLeft))
-        return dailyMB >= 1000
+        return dailyMB >= entry.gbDivisor
             ? String(format: "%.2f GB/d", dailyMB / entry.gbDivisor)
             : String(format: "%.0f MB/d", dailyMB)
     }
 
     private var spentShortText: String {
-        entry.consumedMB < 1000
+        entry.consumedMB < entry.gbDivisor
             ? String(format: "%.0f MB", entry.consumedMB)
             : String(format: "%.2f GB", entry.consumedMB / entry.gbDivisor)
     }
 
     public var body: some View {
-        if entry == .errorFallback {
+        if entry.isError {
             VStack(alignment: .center, spacing: 8) {
                 Text("⚠️")
                     .font(.system(size: 24))
