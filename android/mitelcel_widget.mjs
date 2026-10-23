@@ -47,6 +47,7 @@ export function loadTelcelCache(cachePath = CACHE_FILE) {
   if (!existsSync(cachePath)) return null;
   try {
     const parsed = JSON.parse(readFileSync(cachePath, "utf8"));
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
     parsed.fromCache = true;
     return parsed;
   } catch (_) {

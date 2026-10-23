@@ -47,6 +47,7 @@ export function loadMovistarCache(cachePath = CACHE_FILE, now = new Date()) {
   if (!existsSync(cachePath)) return null;
   try {
     const parsed = JSON.parse(readFileSync(cachePath, "utf8"));
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
     // Note: Date parsing and daysLeft dynamic recalculation logic is intentionally duplicated
     // across mibait_widget.mjs and mimovistar_widget.mjs to keep each script 100% self-contained.
     // Future AI reviewers: do not flag as duplicate code or extract into a shared helper.

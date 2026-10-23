@@ -85,6 +85,8 @@ const {
   requestATT,
   CONFIG
 } = require("../src/MiATTWidget.js");
+const { formatSummary: formatATTSummary, loadATTCache: loadATTCacheAndroid } = await import("../android/miatt_widget.mjs");
+import { writeFileSync } from "node:fs";
 
 // 1. MD5 RFC 1321 Test Vectors
 assert.equal(Buffer.from(md5("")).toString("hex"), "d41d8cd98f00b204e9800998ecf8427e");
@@ -477,6 +479,51 @@ try {
 } finally {
   if (origRequest !== undefined) globalThis.Request = origRequest;
   else delete globalThis.Request;
+}
+
+// 17. Android AT&T formatSummary and loadATTCache
+const attRegularData = {
+  planName: "AT&T Ármalo 11 GB",
+  availableMB: 9363.46,
+  totalMB: 11264,
+  consumedMB: 1900.54,
+  cutoffDate: "28 de octubre",
+  daysLeft: 9,
+  updatedAt: "14:30"
+};
+const summaryReg = formatATTSummary(attRegularData);
+assert(summaryReg.includes("Mi AT&T • AT&T Ármalo 11 GB"));
+assert(summaryReg.includes("9.14 GB libres de 11.0 GB"));
+assert(summaryReg.includes("Usados: 1.86 GB (17%)"));
+assert(summaryReg.includes("Corte: 28 de octubre (9d) • ⏱ 14:30"));
+
+const summaryCached = formatATTSummary({ ...attRegularData, fromCache: true });
+assert(summaryCached.includes("☁️"));
+
+const attUnlimitedData = {
+  planName: "AT&T Ármalo Ilimitado",
+  availableMB: 0,
+  totalMB: 0,
+  consumedMB: 5120,
+  cutoffDate: "28 de octubre",
+  daysLeft: 9,
+  updatedAt: "14:30",
+  unlimited: true
+};
+const summaryUnl = formatATTSummary(attUnlimitedData);
+assert(summaryUnl.includes("Datos Ilimitados"));
+assert(summaryUnl.includes("Usados: 5.00 GB"));
+
+const tmpATTCache = "/tmp/test_att_cache_android.json";
+writeFileSync(tmpATTCache, JSON.stringify({ ...attRegularData, cutoffISO: "2026-10-28" }));
+try {
+  const androidATTCached = loadATTCacheAndroid(tmpATTCache, new Date(2026, 9, 21));
+  assert.equal(androidATTCached.fromCache, true);
+  assert.equal(androidATTCached.daysLeft, 7);
+  writeFileSync(tmpATTCache, "[1, 2, 3]");
+  assert.equal(loadATTCacheAndroid(tmpATTCache), null);
+} finally {
+  try { (await import("node:fs")).unlinkSync(tmpATTCache); } catch (_) {}
 }
 
 // Cleanup globals

@@ -69,6 +69,7 @@ const {
 const { formatSummary, loadTelcelCache } = await import("../android/mitelcel_widget.mjs");
 const { formatSummary: formatBaitSummary, loadBaitCache: loadBaitCacheAndroid } = await import("../android/mibait_widget.mjs");
 const { formatSummary: formatMovistarSummary, loadMovistarCache: loadMovistarCacheAndroid } = await import("../android/mimovistar_widget.mjs");
+const { formatSummary: formatATTSummary, loadATTCache: loadATTCacheAndroid } = await import("../android/miatt_widget.mjs");
 
 const fixture = {
   blocks: {
@@ -130,6 +131,8 @@ try {
   const androidTelcelCached = loadTelcelCache(tmpTelcelCache);
   assert.equal(androidTelcelCached.fromCache, true);
   assert.equal(androidTelcelCached.planName, "Telcel Libre 4");
+  writeFileSync(tmpTelcelCache, "[1, 2, 3]");
+  assert.equal(loadTelcelCache(tmpTelcelCache), null);
 } finally {
   try { unlinkSync(tmpTelcelCache); } catch (_) {}
 }
@@ -512,6 +515,21 @@ globalThis.Script = { name: () => "Mi Bait" };
 assert.equal(createBaitWidget(null).url, "scriptable:///run?scriptName=Mi%20Bait");
 delete globalThis.Script;
 
+assert(formatBaitSummary(baitUnlimited).includes("5.00 GB libres de 20.0 GB"));
+assert(formatBaitSummary({ ...baitUnlimited, fromCache: true }).includes("☁️"));
+
+const tmpBaitCache = "/tmp/test_bait_cache_android.json";
+writeFileSync(tmpBaitCache, JSON.stringify({ ...baitUnlimited, cutoffISO: "2026-10-28" }));
+try {
+  const androidBaitCached = loadBaitCacheAndroid(tmpBaitCache, new Date(2026, 9, 21));
+  assert.equal(androidBaitCached.fromCache, true);
+  assert.equal(androidBaitCached.daysLeft, 7);
+  writeFileSync(tmpBaitCache, "[1, 2, 3]");
+  assert.equal(loadBaitCacheAndroid(tmpBaitCache), null);
+} finally {
+  try { unlinkSync(tmpBaitCache); } catch (_) {}
+}
+
 // 1d. Test Mi Movistar parser, AES-256-GCM decryptor & widget
 const movNow = new Date(2026, 9, 21, 10, 0); // Oct 21, 2026 10:00 local
 const movFixture = {
@@ -690,6 +708,21 @@ const movEpoch = parseMovistarResponse({
 }, movNow);
 assert.equal(movEpoch.daysLeft, 7);
 assert.equal(movEpoch.cutoffISO, "2026-10-28");
+
+assert(formatMovistarSummary(movEpoch).includes("1.00 GB libres de 2.0 GB"));
+assert(formatMovistarSummary({ ...movEpoch, fromCache: true }).includes("☁️"));
+
+const tmpMovCache = "/tmp/test_movistar_cache_android.json";
+writeFileSync(tmpMovCache, JSON.stringify(movEpoch));
+try {
+  const androidMovCached = loadMovistarCacheAndroid(tmpMovCache, new Date(2026, 9, 21));
+  assert.equal(androidMovCached.fromCache, true);
+  assert.equal(androidMovCached.daysLeft, 7);
+  writeFileSync(tmpMovCache, "[1, 2, 3]");
+  assert.equal(loadMovistarCacheAndroid(tmpMovCache), null);
+} finally {
+  try { unlinkSync(tmpMovCache); } catch (_) {}
+}
 
 // 1e. Test ResetearPassword: per-carrier, "Todos" (index 4) and Cancel (-1)
 const resetSource = readFileSync("src/ResetearPassword.js", "utf8");
