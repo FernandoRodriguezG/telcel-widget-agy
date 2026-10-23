@@ -60,6 +60,7 @@ public struct TelcelUsageEntry: Codable, Equatable, Sendable {
     public let updatedAtString: String
     public let isCached: Bool
     public let carrier: String
+    public let isUnlimited: Bool
 
     public init(
         date: Date,
@@ -72,7 +73,8 @@ public struct TelcelUsageEntry: Codable, Equatable, Sendable {
         buckets: [TelcelBucketUsage],
         updatedAtString: String,
         isCached: Bool,
-        carrier: String = "telcel"
+        carrier: String = "telcel",
+        isUnlimited: Bool = false
     ) {
         self.date = date
         self.consumedMB = consumedMB
@@ -85,6 +87,7 @@ public struct TelcelUsageEntry: Codable, Equatable, Sendable {
         self.updatedAtString = updatedAtString
         self.isCached = isCached
         self.carrier = carrier
+        self.isUnlimited = isUnlimited
     }
 
     public init(from decoder: Decoder) throws {
@@ -100,6 +103,7 @@ public struct TelcelUsageEntry: Codable, Equatable, Sendable {
         updatedAtString = try container.decode(String.self, forKey: .updatedAtString)
         isCached = try container.decode(Bool.self, forKey: .isCached)
         carrier = try container.decodeIfPresent(String.self, forKey: .carrier) ?? "telcel"
+        isUnlimited = try container.decodeIfPresent(Bool.self, forKey: .isUnlimited) ?? false
     }
 
     public var gbDivisor: Double {
@@ -600,7 +604,10 @@ public actor TelcelNetworkService {
 
     public static func aesEncryptATT(text: String, password: String) throws -> String {
         var salt = Data(count: 8)
-        _ = salt.withUnsafeMutableBytes { SecRandomCopyBytes(kSecRandomDefault, 8, $0.baseAddress!) }
+        let status = salt.withUnsafeMutableBytes { SecRandomCopyBytes(kSecRandomDefault, 8, $0.baseAddress!) }
+        guard status == errSecSuccess else {
+            throw NSError(domain: NSOSStatusErrorDomain, code: Int(status))
+        }
         let (key, iv) = evpBytesToKey(password: password, salt: salt)
         let plaintext = Data(text.utf8)
         let encrypted = try aesCBC(data: plaintext, key: key, iv: iv, operation: CCOperation(kCCEncrypt))
@@ -1149,7 +1156,8 @@ public actor TelcelNetworkService {
             buckets: buckets,
             updatedAtString: now.formatted(.dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits)),
             isCached: false,
-            carrier: "bait"
+            carrier: "bait",
+            isUnlimited: isUnlimited
         )
     }
 
@@ -1237,8 +1245,8 @@ public actor TelcelNetworkService {
         }
 
         let consumedMB = buckets.reduce(0.0) { $0 + $1.consumedMB }
-        let totalMB = isUnlimited ? 0.0 : buckets.reduce(0.0) { $0 + $1.totalMB }
-        let availableMB = isUnlimited ? 0.0 : buckets.reduce(0.0) { $0 + $1.availableMB }
+        let totalMB = buckets.reduce(0.0) { $0 + $1.totalMB }
+        let availableMB = buckets.reduce(0.0) { $0 + $1.availableMB }
         let daysLeft = maxExpire.map { daysUntil($0, now: now) } ?? 0
         let cutoffDate = maxExpire.map { formatSpanishDate($0) } ?? ""
         let planName = (root["offering"] as? String) ?? (isUnlimited ? "Movistar Ilimitado" : "Movistar Libre")
@@ -1254,7 +1262,8 @@ public actor TelcelNetworkService {
             buckets: buckets,
             updatedAtString: now.formatted(.dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits)),
             isCached: false,
-            carrier: "movistar"
+            carrier: "movistar",
+            isUnlimited: isUnlimited
         )
     }
 
@@ -1366,8 +1375,8 @@ public actor TelcelNetworkService {
         }
 
         let consumedMB = buckets.reduce(0.0) { $0 + $1.consumedMB }
-        let totalMB = isUnlimited ? 0.0 : buckets.reduce(0.0) { $0 + $1.totalMB }
-        let availableMB = isUnlimited ? 0.0 : buckets.reduce(0.0) { $0 + $1.availableMB }
+        let totalMB = buckets.reduce(0.0) { $0 + $1.totalMB }
+        let availableMB = buckets.reduce(0.0) { $0 + $1.availableMB }
 
         let daysLeft: Int
         if let daysStr = servicePlan?["remainCutOffDays"] as? String, let d = Int(daysStr) {
@@ -1396,7 +1405,8 @@ public actor TelcelNetworkService {
             buckets: buckets,
             updatedAtString: now.formatted(.dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits)),
             isCached: false,
-            carrier: "att"
+            carrier: "att",
+            isUnlimited: isUnlimited
         )
     }
 
@@ -1436,7 +1446,8 @@ public actor TelcelNetworkService {
             buckets: cached.buckets,
             updatedAtString: cached.updatedAtString,
             isCached: maxAge == nil,
-            carrier: cached.carrier
+            carrier: cached.carrier,
+            isUnlimited: cached.isUnlimited
         )
     }
 }
@@ -1516,7 +1527,7 @@ public struct MiTelcelWidgetCardContent: View {
                         }
                     }
                     Spacer()
-                    if entry.totalMB > 0 {
+                    if entry.totalMB > 0 || entry.isUnlimited {
                         Text("\(entry.daysLeft) \(entry.daysLeft == 1 ? "día" : "días")")
                             .font(.system(size: 12, weight: .bold))
                             .foregroundStyle(daysColor)
@@ -1547,15 +1558,27 @@ public struct MiTelcelWidgetCardContent: View {
                     }
 
                     VStack(spacing: 1) {
-                        Text(String(format: "%.2f GB", entry.remainingGB))
-                            .font(.system(size: 19, weight: .bold))
-                            .foregroundStyle(.white)
-                            .minimumScaleFactor(0.75)
-                            .lineLimit(1)
-                        Text(String(format: "libres de %.1f GB", entry.totalGB))
-                            .font(.system(size: 9.5, weight: .medium))
-                            .foregroundStyle(subtitleGray)
-                            .lineLimit(1)
+                        if entry.isUnlimited {
+                            Text("Ilimitado")
+                                .font(.system(size: 19, weight: .bold))
+                                .foregroundStyle(.white)
+                                .minimumScaleFactor(0.75)
+                                .lineLimit(1)
+                            Text(entry.availableMB > 0 ? String(format: "%.1f GB veloc. normal", entry.availableMB / entry.gbDivisor) : "Plan sin límite")
+                                .font(.system(size: 9.5, weight: .medium))
+                                .foregroundStyle(subtitleGray)
+                                .lineLimit(1)
+                        } else {
+                            Text(String(format: "%.2f GB", entry.remainingGB))
+                                .font(.system(size: 19, weight: .bold))
+                                .foregroundStyle(.white)
+                                .minimumScaleFactor(0.75)
+                                .lineLimit(1)
+                            Text(String(format: "libres de %.1f GB", entry.totalGB))
+                                .font(.system(size: 9.5, weight: .medium))
+                                .foregroundStyle(subtitleGray)
+                                .lineLimit(1)
+                        }
                     }
                     .padding(.bottom, 6)
                 }

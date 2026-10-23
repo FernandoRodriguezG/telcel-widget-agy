@@ -61,6 +61,7 @@ struct ContentView: View {
                             }
                         }
                         .pickerStyle(.segmented)
+                        .disabled(isLoading)
                         .onChange(of: carrier) { _, newCarrier in
                             switchCarrier(to: newCarrier)
                         }

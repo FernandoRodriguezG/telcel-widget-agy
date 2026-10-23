@@ -1427,7 +1427,9 @@ assert(TelcelUsageEntry.errorFallback == TelcelUsageEntry.errorFallback)
 assert(entry != TelcelUsageEntry.errorFallback)
 assert(TelcelUsageEntry.errorFallback.isError)
 assert(TelcelUsageEntry.errorFallback(for: .bait).isError)
+assert(!TelcelUsageEntry.errorFallback.isUnlimited)
 assert(!entry.isError)
+assert(!entry.isUnlimited)
 
 // Verify Swift parser prevents double counting with web-* blocks and supports web-only fallback
 let webDupJson = #"""
