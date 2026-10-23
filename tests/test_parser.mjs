@@ -1425,6 +1425,11 @@ assert(TelcelUsageEntry.errorFallback.totalMB == 0)
 assert(TelcelUsageEntry.errorFallback.cutoffDate == "Verificar cuenta")
 assert(TelcelUsageEntry.errorFallback == TelcelUsageEntry.errorFallback)
 assert(entry != TelcelUsageEntry.errorFallback)
+assert(TelcelUsageEntry.errorFallback.isError)
+assert(TelcelUsageEntry.errorFallback(for: .bait).isError)
+assert(!TelcelUsageEntry.errorFallback.isUnlimited)
+assert(!entry.isError)
+assert(!entry.isUnlimited)
 
 // Verify Swift parser prevents double counting with web-* blocks and supports web-only fallback
 let webDupJson = #"""
@@ -1461,6 +1466,158 @@ let webOnlyEntry = try TelcelNetworkService.parseHomeFlowJSON(webOnlyJson)
 assert(webOnlyEntry.totalMB == 10000)
 assert(webOnlyEntry.availableMB == 6000)
 assert(webOnlyEntry.buckets.count == 1)
+
+// Test Swift Multi-Operator: Bait, Movistar, AT&T
+let swiftBaitJson = #"""
+{
+  "success": true,
+  "data": [
+    {
+      "category": "Data",
+      "type": "BestEffort",
+      "unlimited": false,
+      "resume": { "total": 10240, "unused": 6144, "expire_date": "2026-11-01T23:59:59.000Z" }
+    },
+    {
+      "category": "Data",
+      "type": "Benefits",
+      "offers_detail": [
+        { "total": 5120, "unused": 5120, "expire_date": "2026-11-01T23:59:59.000Z" },
+        { "total": 2048, "unused": 2048, "expire_date": "2026-09-01T00:00:00.000Z" }
+      ]
+    },
+    {
+      "category": "Data",
+      "type": "SocialMedia",
+      "unlimited": true,
+      "resume": { "total": 5120, "unused": 4800, "expire_date": "2026-12-31T23:59:59.000Z" }
+    }
+  ]
+}
+"""#.data(using: .utf8)!
+var swiftBaitComp = DateComponents()
+swiftBaitComp.year = 2026
+swiftBaitComp.month = 10
+swiftBaitComp.day = 20
+swiftBaitComp.hour = 10
+swiftBaitComp.minute = 9
+let swiftBaitNow = Calendar.current.date(from: swiftBaitComp)!
+let swiftBaitEntry = try TelcelNetworkService.parseBaitJSON(swiftBaitJson, now: swiftBaitNow)
+assert(swiftBaitEntry.planName == "Mi Bait")
+assert(swiftBaitEntry.carrierDisplayName == "Mi Bait")
+assert(swiftBaitEntry.cutoffDate == "1 de noviembre")
+assert(swiftBaitEntry.shortCutoffDate == "1 nov")
+assert(swiftBaitEntry.daysLeft == 12)
+assert(swiftBaitEntry.totalMB == 15360)
+assert(swiftBaitEntry.consumedMB == 4096)
+assert(swiftBaitEntry.availableMB == 11264)
+assert(swiftBaitEntry.remainingGB == 11.0)
+assert(swiftBaitEntry.totalGB == 15.0)
+assert(swiftBaitEntry.footerText.hasPrefix("Plan+Bono • ⏱️ "))
+
+// Swift Movistar Test
+let swiftMovJson = #"""
+{
+  "offering": "Movistar Libre",
+  "bolton": [
+    {
+      "name": "Navegación",
+      "vigencia": "28/10/2026",
+      "consumption": 65,
+      "consumptionLabel": "Llevas 6.50 GB de 10.00 GB",
+      "totalBenefit": "10.00 GB"
+    },
+    {
+      "name": "Bono Datos Extra",
+      "vigencia": "28/10/2026",
+      "consumption": 50,
+      "consumptionLabel": "Llevas 1.00 GB de 2.00 GB",
+      "totalBenefit": "2.00 GB"
+    },
+    {
+      "name": "Redes Sociales",
+      "vigencia": "28/10/2026",
+      "consumption": 0,
+      "consumptionLabel": "Ilimitado",
+      "totalBenefit": "Ilimitado"
+    }
+  ]
+}
+"""#.data(using: .utf8)!
+var swiftMovComp = DateComponents()
+swiftMovComp.year = 2026
+swiftMovComp.month = 10
+swiftMovComp.day = 21
+let swiftMovNow = Calendar.current.date(from: swiftMovComp)!
+let swiftMovEntry = try TelcelNetworkService.parseMovistarJSON(swiftMovJson, now: swiftMovNow)
+assert(swiftMovEntry.planName == "Movistar Libre")
+assert(swiftMovEntry.carrierDisplayName == "Mi Movistar")
+assert(swiftMovEntry.totalMB == 12288)
+assert(swiftMovEntry.consumedMB == 7680)
+assert(swiftMovEntry.availableMB == 4608)
+assert(swiftMovEntry.daysLeft == 7)
+assert(swiftMovEntry.remainingGB == 4.5)
+assert(swiftMovEntry.totalGB == 12.0)
+
+// Swift AT&T Test
+let swiftAttJson = #"""
+{
+  "userBalances": [
+    {
+      "ServicePlan": {
+        "ProductRatePlanName": "AT&T Ármalo 11 GB",
+        "remainCutOffDays": "9",
+        "allowances": [
+          {
+            "AllowanceID": "123456",
+            "AllowanceName": "Datos Nacionales",
+            "UnitType": "KBytes",
+            "Quota": "11534336",
+            "RemainingQuota": "6291456",
+            "UtilizedQuota": "5242880",
+            "Unlimited": "N",
+            "EndTime": "2026-10-28T23:59:59"
+          },
+          {
+            "AllowanceID": "99001234",
+            "AllowanceName": "Bono Promocional",
+            "UnitType": "MBytes",
+            "Quota": "3072",
+            "RemainingQuota": "3072",
+            "UtilizedQuota": "0",
+            "Unlimited": "N",
+            "EndTime": "2026-10-28T23:59:59"
+          }
+        ]
+      }
+    }
+  ]
+}
+"""#.data(using: .utf8)!
+var swiftAttComp = DateComponents()
+swiftAttComp.year = 2026
+swiftAttComp.month = 10
+swiftAttComp.day = 19
+let swiftAttNow = Calendar.current.date(from: swiftAttComp)!
+let swiftAttEntry = try TelcelNetworkService.parseATTJSON(swiftAttJson, now: swiftAttNow)
+assert(swiftAttEntry.planName == "AT&T Ármalo 11 GB")
+assert(swiftAttEntry.carrierDisplayName == "Mi AT&T")
+assert(swiftAttEntry.totalMB == 14336)
+assert(swiftAttEntry.consumedMB == 5120)
+assert(swiftAttEntry.availableMB == 9216)
+assert(swiftAttEntry.daysLeft == 9)
+assert(swiftAttEntry.remainingGB == 9.0)
+assert(swiftAttEntry.totalGB == 14.0)
+
+// Swift AT&T Crypto Test
+let attPlain = "Swift AT&T Crypto Test Payload"
+let attCipher = try TelcelNetworkService.aesEncryptATT(text: attPlain, password: "test-secret-key")
+let attDecrypted = try TelcelNetworkService.aesDecryptATT(base64: attCipher, password: "test-secret-key")
+assert(attDecrypted == attPlain)
+
+// Swift Movistar Crypto Test
+let movPlain = try TelcelNetworkService.decryptMovistarContent(payload: "${cipherPayload}", guardKey: "${staticKey}")
+assert(movPlain.contains("Movistar Libre"))
 
 print("✅ Swift & JS parser tests passed!")
 `;
