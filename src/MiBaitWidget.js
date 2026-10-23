@@ -155,7 +155,7 @@ async function main() {
 }
 
 async function requestBait(url, headers) {
-  if (typeof Request !== "undefined") {
+  if (typeof Request !== "undefined" && typeof Request.prototype?.loadJSON === "function") {
     const req = new Request(url);
     req.method = "GET";
     req.headers = headers;
@@ -173,7 +173,7 @@ async function requestBait(url, headers) {
 }
 
 async function requestText(url, headers = {}) {
-  if (typeof Request !== "undefined") {
+  if (typeof Request !== "undefined" && typeof Request.prototype?.loadString === "function") {
     const req = new Request(url);
     req.method = "GET";
     req.headers = headers;
