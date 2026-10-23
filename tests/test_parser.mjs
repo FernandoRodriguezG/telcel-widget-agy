@@ -1514,6 +1514,10 @@ try {
     constructor(url) {
       this.url = url;
     }
+    async loadJSON() {
+      this.response = { statusCode: 503 };
+      return {};
+    }
     async loadString() {
       this.response = { statusCode: 503 };
       return "";
