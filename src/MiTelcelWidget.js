@@ -391,16 +391,7 @@ function parseTelcelResponse(payload) {
     }
   }
 
-  const suffixes = Array.from(suffixesSet).sort((a, b) => {
-    const partsA = a.split('-');
-    const partsB = b.split('-');
-    for (let i = 0; i < Math.max(partsA.length, partsB.length); i++) {
-      const numA = parseInt(partsA[i] || '0', 10);
-      const numB = parseInt(partsB[i] || '0', 10);
-      if (numA !== numB) return numA - numB;
-    }
-    return 0;
-  });
+  const suffixes = Array.from(suffixesSet).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
 
   const toMB = (val, unit) => {
     if (val === undefined || val === null || val === "") return null;
