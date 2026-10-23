@@ -3,3 +3,9 @@
 **Learning:** When users encounter an unconfigured or disconnected widget, plain textual errors ("Sin datos. Verificar credenciales o red.") can feel jarring and unhelpful. Including actionable verbs (e.g., "Toca el widget para...") and a familiar warning icon (⚠️) instantly transforms an error screen into a helpful prompt, reducing perceived friction. Similarly, during initial setup, explicitly stating *why* permissions/credentials are needed ("Para mostrar tu consumo en vivo...") provides reassuring context compared to solely focusing on the mechanism ("Tus credenciales se guardarán en el Keychain").
 
 **Action:** Always ensure empty or error states have visual weight (icons, layout adjustments) and actionable, user-centric copy rather than purely technical explanations, across both JS Scriptable and Native SwiftUI widget targets.
+
+## 2024-10-22 - Optimización de Entrada de Datos con Teclados Contextuales
+
+**Learning:** During widget setup or authentication flows on iOS, requiring users to manually switch to the numeric keyboard to input a phone number creates unnecessary friction and cognitive load. This is a common oversight in form design on mobile devices. Providing the correct context (e.g., a phone pad) for specific input fields drastically improves the setup UX, making it feel native and intuitive.
+
+**Action:** Always utilize appropriate contextual keyboards (e.g., `setPhonePadKeyboard()`, `setEmailAddressKeyboard()`) for text fields in Scriptable alerts (and equivalent SwiftUI components) to minimize user effort and prevent formatting errors during data entry.
