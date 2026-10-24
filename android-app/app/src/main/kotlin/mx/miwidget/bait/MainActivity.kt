@@ -39,6 +39,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import mx.miwidget.bait.core.BaitClient
+import mx.miwidget.bait.core.BaitUsage
 import mx.miwidget.bait.core.WidgetLabels
 import mx.miwidget.bait.data.PhoneStore
 import mx.miwidget.bait.data.UsageCache
@@ -134,7 +135,7 @@ private fun SetupScreen() {
             ) { Text(if (busy) "Validando…" else "Validar y guardar") }
         } else {
             Text("Línea •••• ${phone.takeLast(4)}", style = MaterialTheme.typography.titleMedium)
-            usage?.let { UsageCard(WidgetLabels.from(it)) }
+            usage?.let { UsageCard(it) }
             Button(enabled = !busy, onClick = { fetch(phone, persist = false) }, modifier = Modifier.fillMaxWidth()) {
                 Text(if (busy) "Actualizando…" else "Actualizar ahora")
             }
@@ -173,7 +174,8 @@ private fun SetupScreen() {
 }
 
 @Composable
-private fun UsageCard(labels: WidgetLabels) {
+private fun UsageCard(usage: BaitUsage) {
+    val labels = WidgetLabels.from(usage)
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(labels.main, style = MaterialTheme.typography.displaySmall)
@@ -181,6 +183,16 @@ private fun UsageCard(labels: WidgetLabels) {
             Text("${labels.days}${if (labels.cutoff.isNotEmpty()) " • ${labels.cutoff}" else ""}")
             Text("Gastado ${labels.spent.removePrefix("● ")} • Diario ${labels.pace.removePrefix("● ")}")
             Text(labels.footer, style = MaterialTheme.typography.bodySmall)
+            // Desglose por bolsa para comparar contra la app oficial de Bait
+            Text("Desglose", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 8.dp))
+            usage.buckets.forEach { bucket ->
+                Text(
+                    "${bucket.name}: ${mb(bucket.availableMB)} libres de ${mb(bucket.totalMB)} (usados ${mb(bucket.consumedMB)})",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
         }
     }
 }
+
+private fun mb(value: Double) = String.format(java.util.Locale.US, "%.0f MB", value)

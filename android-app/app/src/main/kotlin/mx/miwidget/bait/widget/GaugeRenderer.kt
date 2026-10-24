@@ -21,6 +21,7 @@ object GaugeRenderer {
     private const val CY = 152f
     private const val RADIUS = 124f
     private const val THICKNESS = 24f
+    private const val STATS_HEIGHT = 34
 
     fun render(labels: WidgetLabels): Bitmap {
         val bitmap = Bitmap.createBitmap(WIDTH, HEIGHT, Bitmap.Config.ARGB_8888)
@@ -52,6 +53,34 @@ object GaugeRenderer {
             canvas, labels.sub, 22f, Typeface.create(Typeface.DEFAULT, Typeface.NORMAL), WidgetColors.SUBTITLE,
             top = 126f, height = 30f
         )
+        return bitmap
+    }
+
+    /**
+     * Fila "● gastado" (rojo, izquierda) / "● presupuesto diario" (verde, derecha) como imagen:
+     * se escala al ancho del widget en vez de truncarse, igual que `minimumScaleFactor` en iOS.
+     */
+    fun renderStats(labels: WidgetLabels): Bitmap {
+        val bitmap = Bitmap.createBitmap(WIDTH, STATS_HEIGHT, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        val medium = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        val left = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = WidgetColors.SPENT
+            typeface = medium
+            textSize = 26f
+        }
+        val right = Paint(left).apply {
+            color = WidgetColors.AVAILABLE
+            textAlign = Paint.Align.RIGHT
+        }
+        val minGap = 12f
+        while (left.measureText(labels.spent) + right.measureText(labels.pace) + minGap > WIDTH && left.textSize > 12f) {
+            left.textSize -= 1f
+            right.textSize = left.textSize
+        }
+        val baseline = STATS_HEIGHT / 2f - (left.ascent() + left.descent()) / 2
+        canvas.drawText(labels.spent, 0f, baseline, left)
+        canvas.drawText(labels.pace, WIDTH.toFloat(), baseline, right)
         return bitmap
     }
 

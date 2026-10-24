@@ -51,12 +51,13 @@ class BaitWidget : GlanceAppWidget() {
         val usage = if (hasPhone) UsageCache(context).load() else null
         val labels = usage?.let(WidgetLabels::from)
         val gauge = labels?.let(GaugeRenderer::render)
+        val stats = labels?.let(GaugeRenderer::renderStats)
         provideContent {
             when {
                 !hasPhone -> ErrorContent("Toca aquí para configurar tu número Bait.")
-                labels == null || gauge == null ->
+                labels == null || gauge == null || stats == null ->
                     ErrorContent("No pudimos cargar tus datos. Abre Mi Bait Widget para revisar tu conexión o número.")
-                else -> UsageContent(labels, gauge)
+                else -> UsageContent(labels, gauge, stats)
             }
         }
     }
@@ -81,7 +82,7 @@ private fun style(color: Int, size: TextUnit, weight: FontWeight = FontWeight.No
     TextStyle(color = ColorProvider(Color(color)), fontSize = size, fontWeight = weight, textAlign = align)
 
 @Composable
-private fun UsageContent(labels: WidgetLabels, gauge: Bitmap) {
+private fun UsageContent(labels: WidgetLabels, gauge: Bitmap, stats: Bitmap) {
     val daysColor = when (labels.daysLevel) {
         DaysLevel.ALERT -> WidgetColors.SPENT
         DaysLevel.WARN -> WidgetColors.WARN
@@ -118,11 +119,12 @@ private fun UsageContent(labels: WidgetLabels, gauge: Bitmap) {
             contentScale = ContentScale.Fit
         )
         Spacer(GlanceModifier.height(4.dp))
-        Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(labels.spent, style = style(WidgetColors.SPENT, 10.sp, FontWeight.Medium), maxLines = 1)
-            Spacer(GlanceModifier.defaultWeight())
-            Text(labels.pace, style = style(WidgetColors.AVAILABLE, 10.sp, FontWeight.Medium), maxLines = 1)
-        }
+        Image(
+            provider = ImageProvider(stats),
+            contentDescription = "Gastado ${labels.spent.removePrefix("● ")}, diario ${labels.pace.removePrefix("● ")}",
+            modifier = GlanceModifier.fillMaxWidth().height(14.dp),
+            contentScale = ContentScale.Fit
+        )
         Spacer(GlanceModifier.height(3.dp))
         Text(labels.footer, style = style(WidgetColors.SUBTITLE, 9.5.sp), maxLines = 1)
     }
