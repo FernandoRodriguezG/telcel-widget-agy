@@ -13,6 +13,8 @@
 - [`src/ResetearPassword.js`](src/ResetearPassword.js): Script de Scriptable que borra del Keychain las credenciales del operador elegido (`TELCEL_PHONE`/`TELCEL_PASS`, `BAIT_PHONE`, `MOVISTAR_PID`) o de todos. Si agregas un operador o una llave de Keychain, actualiza su mapa `KEYCHAIN_KEYS`.
 - [`MiTelcelWidget/TelcelNetworkService.swift`](MiTelcelWidget/TelcelNetworkService.swift), [`MiTelcelWidget/MiTelcelWidget.swift`](MiTelcelWidget/MiTelcelWidget.swift) y [`MiTelcelApp/MiTelcelApp.swift`](MiTelcelApp/MiTelcelApp.swift): App contenedora y extensión nativa **WidgetKit / SwiftUI (iOS 17+)** con `AppIntentConfiguration`, recarga interactiva (`RefreshTelcelUsageIntent`) y vista compartida `MiTelcelWidgetCardContent`.
 - [`android/mitelcel_widget.mjs`](android/mitelcel_widget.mjs), [`android/mibait_widget.mjs`](android/mibait_widget.mjs), [`android/mimovistar_widget.mjs`](android/mimovistar_widget.mjs) y [`android/miatt_widget.mjs`](android/miatt_widget.mjs): Scripts CLI para Termux / Termux:Widget / KWGT que importan `fetchTelcelData`, `fetchBaitData`, `fetchMovistarData` y `fetchATTData` conservando headers móviles, revocación SSO en Telcel, descifrado AES-256-GCM en Movistar, doble cifrado AES-256-CBC en AT&T y recálculo dinámico de días restantes en caché para Bait/Movistar/AT&T (no probados en hardware Android físico). Acompañados de sus lanzadores [`android/shortcuts_*.sh`](android/).
+- [`android-app/`](android-app/README.md): App nativa **Android (Kotlin, Compose + Glance, minSdk 26)** con widget de **Mi Bait**. `core/` es Kotlin puro (`BaitParser` port 1:1 de `parseBaitResponse`, `BaitClient`, `WidgetLabels`); `app/` guarda el número cifrado con Android Keystore (`PhoneStore`), cachea en `UsageCache` y actualiza con `RefreshWorker` (WorkManager, cada hora). Compila en CI ([`.github/workflows/android-bait.yml`](.github/workflows/android-bait.yml)).
+- [`tests/fixtures/bait/`](tests/fixtures/bait/): Respuestas de `/get/consumption` con resultado esperado que validan **ambos** parsers (`tests/test_parser.mjs` y `BaitParserTest`). Si cambias el parseo de Bait en JS o Kotlin, actualiza los fixtures y mantén ambos en paridad.
 - [`tests/test_parser.mjs`](tests/test_parser.mjs): Suite de pruebas sin dependencias externas que valida en un solo comando los parsers JS (Telcel, Bait y Movistar con descifrado AES-GCM simulado sin red), `ResetearPassword`, el renderizado `DrawContext`, el resumen Android y el parser nativo Swift (`swift -`).
 - Documentación técnica de APIs: [`Telcel Widget API.md`](Telcel%20Widget%20API.md), [`Mexican Carriers Widget API.md`](Mexican%20Carriers%20Widget%20API.md), [`API Validation.md`](API%20Validation.md) y [`Research.md`](Research.md).
 
@@ -41,6 +43,7 @@
 - **Autonomía y construcción lineal:** Cada widget (`src/Mi*.js`) es autónomo y no debe depender de módulos compartidos ni fragmentarse en helpers de renderizado innecesarios para optimizar memoria en iOS WidgetKit.
 - **Verificación obligatoria tras cambios de código:**
   1. Ejecutar `node tests/test_parser.mjs` (valida JS y Swift).
-  2. Si se toca código Swift o el proyecto Xcode, validar compilación con:
+  2. Si se toca `android-app/`, ejecutar `cd android-app && ./gradlew -PcoreOnly :core:test` (la app completa se compila en CI).
+  3. Si se toca código Swift o el proyecto Xcode, validar compilación con:
      `xcodebuild -project MiTelcelWidget.xcodeproj -scheme MiTelcelApp -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build`
 

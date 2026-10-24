@@ -3,6 +3,9 @@
 > [!WARNING]
 > **No probado en hardware físico:** Estos scripts CLI de Android fueron construidos reutilizando la lógica validada y probada de iOS (`src/MiTelcelWidget.js`, `src/MiBaitWidget.js`, `src/MiMovistarWidget.js` y `src/MiATTWidget.js`), pero **no han sido probados en un teléfono Android real** por no contar con un dispositivo físico disponible.
 
+> [!TIP]
+> **¿Usas Bait?** Hay una app nativa con widget visual que se instala con un APK, sin Termux ni KWGT: [`android-app/README.md`](../android-app/README.md).
+
 ---
 
 ## Cómo funciona cada operador

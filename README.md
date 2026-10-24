@@ -105,7 +105,13 @@ Para usuarios con Mac y Xcode que deseen compilar la app y extensión nativa:
 
 ---
 
-## Método 3: Prototipo para Android (Termux:Widget / KWGT)
+## Método 3: App nativa para Android (Mi Bait)
+
+App Kotlin con widget de pantalla de inicio (mismo diseño que iOS) que se instala con un APK: descárgalo, escribe tu número Bait y agrega el widget. Se actualiza sola cada hora y al tocarla. Instrucciones completas en [`android-app/README.md`](android-app/README.md).
+
+---
+
+## Método 4: Prototipo para Android (Termux:Widget / KWGT)
 
 > [!WARNING]
 > **Nota:** Como no cuento con un teléfono Android físico, **los scripts de Android no han sido probados en hardware real**. Comparten exactamente los mismos parsers y flujos de red de iOS (`src/MiTelcelWidget.js`, `src/MiBaitWidget.js` y `src/MiMovistarWidget.js`), pero se incluyen únicamente como referencia experimental.
@@ -162,7 +168,9 @@ Puedes probar las llamadas reales y verificar el formato devuelto por Mi Telcel 
 │   └── ResetearPassword.js         # Script para limpiar credenciales de operadores en Keychain
 ├── tests/
 │   ├── test_parser.mjs             # Suite de pruebas unitarias (Telcel, Bait, Movistar, Keychain, UI y Swift)
-│   └── test_att.mjs                # Pruebas criptográficas y parser de Mi AT&T
+│   ├── test_att.mjs                # Pruebas criptográficas y parser de Mi AT&T
+│   └── fixtures/bait/              # Respuestas de ejemplo compartidas por los parsers JS y Kotlin
+├── android-app/                    # App nativa Android (Kotlin + Glance) con widget de Mi Bait
 ├── android/
 │   ├── mitelcel_widget.mjs         # Prototipo Node.js para Mi Telcel (Termux / KWGT)
 │   ├── mibait_widget.mjs           # Prototipo Node.js para Mi Bait (Termux / KWGT)
