@@ -1,0 +1,82 @@
+{
+  "description": "Plan base + bono vigente; ignora oferta vencida, SocialMedia y minutos",
+  "now": "2026-10-20T10:09",
+  "payload": {
+    "success": true,
+    "data": [
+      {
+        "category": "Data",
+        "type": "BestEffort",
+        "unlimited": false,
+        "resume": {
+          "total": 10240,
+          "unused": 6144,
+          "expire_date": "2026-11-01T23:59:59.000Z"
+        }
+      },
+      {
+        "category": "Data",
+        "type": "Benefits",
+        "offers_detail": [
+          {
+            "total": 5120,
+            "unused": 5120,
+            "expire_date": "2026-11-01T23:59:59.000Z"
+          },
+          {
+            "total": 2048,
+            "unused": 2048,
+            "expire_date": "2026-09-01T00:00:00.000Z"
+          }
+        ]
+      },
+      {
+        "category": "Data",
+        "type": "SocialMedia",
+        "unlimited": true,
+        "resume": {
+          "total": 5120,
+          "unused": 4800,
+          "expire_date": "2026-12-31T23:59:59.000Z"
+        }
+      },
+      {
+        "category": "Minutes",
+        "type": "National",
+        "resume": {
+          "total": 100,
+          "unused": 50,
+          "expire_date": "2026-12-15T23:59:59.000Z"
+        }
+      }
+    ]
+  },
+  "expected": {
+    "consumedMB": 4096,
+    "totalMB": 15360,
+    "availableMB": 11264,
+    "daysLeft": 12,
+    "cutoffDate": "1 de noviembre",
+    "cutoffISO": "2026-11-01",
+    "planName": "Mi Bait",
+    "promo": true,
+    "buckets": [
+      {
+        "id": "BestEffort",
+        "name": "Velocidad normal",
+        "consumedMB": 4096,
+        "totalMB": 10240,
+        "availableMB": 6144
+      },
+      {
+        "id": "Benefits",
+        "name": "Beneficios",
+        "consumedMB": 0,
+        "totalMB": 5120,
+        "availableMB": 5120
+      }
+    ],
+    "updatedAt": "10:09",
+    "fromCache": false
+  }
+}

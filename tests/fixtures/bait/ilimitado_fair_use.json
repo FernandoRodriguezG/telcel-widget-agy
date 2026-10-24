@@ -1,0 +1,57 @@
+{
+  "description": "Plan ilimitado BestEffort + Throttling con vigencia ya vencida",
+  "now": "2026-10-20T07:05",
+  "payload": {
+    "success": true,
+    "data": [
+      {
+        "category": "Data",
+        "type": "BestEffort",
+        "unlimited": true,
+        "resume": {
+          "total": 10240,
+          "unused": 0,
+          "expire_date": "2026-10-15T23:59:59.000Z"
+        }
+      },
+      {
+        "category": "Data",
+        "type": "Throttling",
+        "unlimited": true,
+        "resume": {
+          "total": 10240,
+          "unused": 5120,
+          "expire_date": "2026-10-15T23:59:59.000Z"
+        }
+      }
+    ]
+  },
+  "expected": {
+    "consumedMB": 15360,
+    "totalMB": 20480,
+    "availableMB": 5120,
+    "daysLeft": 0,
+    "cutoffDate": "15 de octubre",
+    "cutoffISO": "2026-10-15",
+    "planName": "Bait Ilimitado",
+    "promo": false,
+    "buckets": [
+      {
+        "id": "BestEffort",
+        "name": "Velocidad normal",
+        "consumedMB": 10240,
+        "totalMB": 10240,
+        "availableMB": 0
+      },
+      {
+        "id": "Throttling",
+        "name": "Velocidad reducida",
+        "consumedMB": 5120,
+        "totalMB": 10240,
+        "availableMB": 5120
+      }
+    ],
+    "updatedAt": "07:05",
+    "fromCache": false
+  }
+}

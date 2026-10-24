@@ -1,0 +1,20 @@
+{
+  "description": "Sin bolsas de datos generales: error",
+  "now": "2026-10-20T10:09",
+  "payload": {
+    "success": true,
+    "data": [
+      {
+        "category": "Data",
+        "type": "SocialMedia",
+        "unlimited": true,
+        "resume": {
+          "total": 5120,
+          "unused": 4800,
+          "expire_date": "2026-12-31T23:59:59.000Z"
+        }
+      }
+    ]
+  },
+  "expectedError": "Sin bolsas de datos activas en la línea Bait"
+}

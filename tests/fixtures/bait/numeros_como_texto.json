@@ -1,0 +1,67 @@
+{
+  "description": "Valores numéricos como texto, oferta sin fecha cuenta como vigente y bolsas vacías se descartan",
+  "now": "2026-12-30T23:59",
+  "payload": {
+    "success": true,
+    "data": [
+      {
+        "category": "Data",
+        "type": "BestEffort",
+        "unlimited": false,
+        "resume": {
+          "total": "3072",
+          "unused": "1000.5",
+          "expire_date": "2027-01-05"
+        }
+      },
+      {
+        "category": "Data",
+        "type": "Throttling",
+        "unlimited": false,
+        "resume": {
+          "total": 0,
+          "unused": 0,
+          "expire_date": "2027-03-01T00:00:00.000Z"
+        }
+      },
+      {
+        "category": "Data",
+        "type": "Benefits",
+        "offers_detail": [
+          {
+            "total": "512",
+            "unused": "256"
+          }
+        ]
+      }
+    ]
+  },
+  "expected": {
+    "consumedMB": 2327.5,
+    "totalMB": 3584,
+    "availableMB": 1256.5,
+    "daysLeft": 6,
+    "cutoffDate": "5 de enero",
+    "cutoffISO": "2027-01-05",
+    "planName": "Mi Bait",
+    "promo": true,
+    "buckets": [
+      {
+        "id": "BestEffort",
+        "name": "Velocidad normal",
+        "consumedMB": 2071.5,
+        "totalMB": 3072,
+        "availableMB": 1000.5
+      },
+      {
+        "id": "Benefits",
+        "name": "Beneficios",
+        "consumedMB": 256,
+        "totalMB": 512,
+        "availableMB": 256
+      }
+    ],
+    "updatedAt": "23:59",
+    "fromCache": false
+  }
+}

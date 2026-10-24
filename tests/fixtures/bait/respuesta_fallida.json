@@ -1,0 +1,9 @@
+{
+  "description": "success=false propaga el mensaje del servidor",
+  "now": "2026-10-20T10:09",
+  "payload": {
+    "success": false,
+    "message": "No se encontró el número"
+  },
+  "expectedError": "No se encontró el número"
+}

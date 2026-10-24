@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Mi Bait Widget</string>
+    <string name="widget_name">Mi Bait</string>
+    <string name="widget_description">Datos disponibles, vigencia y presupuesto diario de tu línea Bait</string>
+</resources>

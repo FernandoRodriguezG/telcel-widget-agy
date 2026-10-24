@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { readFileSync, writeFileSync, unlinkSync } from "node:fs";
+import { readFileSync, readdirSync, writeFileSync, unlinkSync } from "node:fs";
 import { createRequire } from "node:module";
 
 globalThis.Color = class { constructor(hex) { this.hex = hex; } };
@@ -319,6 +319,19 @@ assert.equal(cachedLater.daysLeft, 4);
 const cachedExpired = loadBaitCache(new Date(2026, 10, 5, 8, 0)); // Past Nov 1 -> clamped to 0
 assert.equal(cachedExpired.fromCache, true);
 assert.equal(cachedExpired.daysLeft, 0);
+
+// Fixtures compartidos con el parser Kotlin de android-app (BaitParserTest): ambos deben dar el mismo resultado
+const baitFixturesDir = new URL("./fixtures/bait/", import.meta.url);
+for (const file of readdirSync(baitFixturesDir).filter(f => f.endsWith(".json"))) {
+  const fx = JSON.parse(readFileSync(new URL(file, baitFixturesDir), "utf8"));
+  const [y, mo, d, h, mi] = fx.now.split(/[-T:]/).map(Number);
+  const fxNow = new Date(y, mo - 1, d, h, mi);
+  if (fx.expectedError) {
+    assert.throws(() => parseBaitResponse(fx.payload, fxNow), { message: fx.expectedError }, file);
+  } else {
+    assert.deepStrictEqual(parseBaitResponse(fx.payload, fxNow), fx.expected, file);
+  }
+}
 
 // Test fetchBaitData network error propagation via Request mock
 const originalRequest = globalThis.Request;

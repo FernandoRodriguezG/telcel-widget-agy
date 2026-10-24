@@ -1,0 +1,39 @@
+{
+  "description": "Bolsa sin expire_date: cutoffISO nulo y 0 días",
+  "now": "2026-10-20T10:09",
+  "payload": {
+    "success": true,
+    "data": [
+      {
+        "category": "Data",
+        "type": "BestEffort",
+        "unlimited": false,
+        "resume": {
+          "total": 1024,
+          "unused": 512
+        }
+      }
+    ]
+  },
+  "expected": {
+    "consumedMB": 512,
+    "totalMB": 1024,
+    "availableMB": 512,
+    "daysLeft": 0,
+    "cutoffDate": "",
+    "cutoffISO": null,
+    "planName": "Mi Bait",
+    "promo": false,
+    "buckets": [
+      {
+        "id": "BestEffort",
+        "name": "Velocidad normal",
+        "consumedMB": 512,
+        "totalMB": 1024,
+        "availableMB": 512
+      }
+    ],
+    "updatedAt": "10:09",
+    "fromCache": false
+  }
+}
