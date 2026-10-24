@@ -35,13 +35,31 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
-      - name: Llave de firma (opcional)
+      - name: Versión desde el tag del release
+        if: github.event_name == 'release'
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          VERSION="${TAG#android-}"
+          VERSION="${VERSION#v}"
+          if ! echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::El tag debe tener la forma android-v1.2.3 (recibido: $TAG)"
+            exit 1
+          fi
+          echo "BAIT_VERSION_NAME=$VERSION" >> "$GITHUB_ENV"
+
+      - name: Llave de firma
         env:
           KEYSTORE_BASE64: ${{ secrets.BAIT_KEYSTORE_BASE64 }}
+          IS_RELEASE: ${{ github.event_name == 'release' }}
         run: |
           if [ -n "$KEYSTORE_BASE64" ]; then
             echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
             echo "BAIT_KEYSTORE_PATH=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+          elif [ "$IS_RELEASE" = "true" ]; then
+            # Un release firmado con la llave debug no se podría actualizar encima de las versiones anteriores
+            echo "::error::Los releases requieren los secrets BAIT_KEYSTORE_* (ver android-app/README.md)"
+            exit 1
           else
             echo "::notice::Sin secret BAIT_KEYSTORE_BASE64: el APK se firma con la llave debug del runner"
           fi

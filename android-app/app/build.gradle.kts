@@ -19,7 +19,8 @@ android {
         targetSdk = 35
         // Cada build de CI incrementa versionCode para poder instalar encima de la versión anterior
         versionCode = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1
-        versionName = "0.1.0"
+        // En releases CI toma la versión del tag (android-v1.2.3 -> 1.2.3)
+        versionName = System.getenv("BAIT_VERSION_NAME") ?: "0.1.0-dev"
     }
 
     signingConfigs {

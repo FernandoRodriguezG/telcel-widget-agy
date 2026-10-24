@@ -170,6 +170,9 @@ private fun SetupScreen() {
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
+
+        val version = remember { context.packageManager.getPackageInfo(context.packageName, 0).versionName }
+        Text("Versión $version", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
