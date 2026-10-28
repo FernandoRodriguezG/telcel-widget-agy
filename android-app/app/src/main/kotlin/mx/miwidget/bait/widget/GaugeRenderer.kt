@@ -2,6 +2,7 @@ package mx.miwidget.bait.widget
 
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.RectF
 import android.graphics.Typeface
@@ -10,9 +11,16 @@ import kotlin.math.PI
 import kotlin.math.max
 import kotlin.math.min
 
+/** Capas del medidor, todas del mismo tamaño para apilarse alineadas. `null` = capa vacía. */
+class GaugeLayers(val track: Bitmap, val spent: Bitmap?, val available: Bitmap?, val main: Bitmap, val sub: Bitmap)
+
+/** Capas de la fila "● gastado" (izquierda) / "● presupuesto diario" (derecha). */
+class StatsLayers(val spent: Bitmap, val pace: Bitmap)
+
 /**
- * Dibuja el medidor semicircular igual que `drawSemicircleGauge` de Scriptable:
- * riel gris, gastado en rojo a la izquierda y disponible en verde a la derecha.
+ * Dibuja el medidor semicircular de `drawSemicircleGauge` (Scriptable) como máscaras blancas:
+ * el widget tiñe cada capa con `ColorFilter.tint`, así los colores (fijos en el estilo Clásico o
+ * dinámicos en Material You) se resuelven en el launcher y siguen al modo claro/oscuro sin redibujar.
  */
 object GaugeRenderer {
     private const val WIDTH = 360
@@ -23,70 +31,67 @@ object GaugeRenderer {
     private const val THICKNESS = 24f
     private const val STATS_HEIGHT = 34
 
-    fun render(labels: WidgetLabels): Bitmap {
-        val bitmap = Bitmap.createBitmap(WIDTH, HEIGHT, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(bitmap)
+    fun gauge(labels: WidgetLabels): GaugeLayers {
         val oval = RectF(CX - RADIUS, CY - RADIUS, CX + RADIUS, CY + RADIUS)
         val arcPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
             style = Paint.Style.STROKE
             strokeWidth = THICKNESS
             strokeCap = Paint.Cap.ROUND
         }
 
-        fun arc(start: Double, end: Double, color: Int) {
-            if (end - start <= 0.005) return
-            arcPaint.color = color
-            canvas.drawArc(oval, Math.toDegrees(start).toFloat(), Math.toDegrees(end - start).toFloat(), false, arcPaint)
+        fun arc(start: Double, end: Double): Bitmap? {
+            if (end - start <= 0.005) return null
+            return layer(HEIGHT) {
+                drawArc(oval, Math.toDegrees(start).toFloat(), Math.toDegrees(end - start).toFloat(), false, arcPaint)
+            }
         }
 
-        arc(PI, 2 * PI, WidgetColors.TRACK)
+        var spent: Bitmap? = null
+        var available: Bitmap? = null
         labels.spentRatio?.let { ratio ->
             val clamped = ratio.toDouble().coerceIn(0.0, 1.0)
             val split = PI + clamped * PI
             val gap = if (clamped > 0.04 && clamped < 0.96) 0.11 else 0.0
-            if (clamped > 0.005) arc(PI, max(PI + 0.01, split - gap), WidgetColors.SPENT)
-            if (clamped < 0.995) arc(min(2 * PI - 0.01, split + gap), 2 * PI, WidgetColors.AVAILABLE)
+            if (clamped > 0.005) spent = arc(PI, max(PI + 0.01, split - gap))
+            if (clamped < 0.995) available = arc(min(2 * PI - 0.01, split + gap), 2 * PI)
         }
 
-        centeredText(canvas, labels.main, 50f, Typeface.DEFAULT_BOLD, WidgetColors.WHITE, top = 68f, height = 58f)
-        centeredText(
-            canvas, labels.sub, 22f, Typeface.create(Typeface.DEFAULT, Typeface.NORMAL), WidgetColors.SUBTITLE,
-            top = 126f, height = 30f
+        return GaugeLayers(
+            track = arc(PI, 2 * PI)!!,
+            spent = spent,
+            available = available,
+            main = layer(HEIGHT) { centeredText(labels.main, 50f, Typeface.DEFAULT_BOLD, top = 68f, height = 58f) },
+            sub = layer(HEIGHT) { centeredText(labels.sub, 22f, Typeface.DEFAULT, top = 126f, height = 30f) }
         )
-        return bitmap
     }
 
-    /**
-     * Fila "● gastado" (rojo, izquierda) / "● presupuesto diario" (verde, derecha) como imagen:
-     * se escala al ancho del widget en vez de truncarse, igual que `minimumScaleFactor` en iOS.
-     */
-    fun renderStats(labels: WidgetLabels): Bitmap {
-        val bitmap = Bitmap.createBitmap(WIDTH, STATS_HEIGHT, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(bitmap)
-        val medium = Typeface.create("sans-serif-medium", Typeface.NORMAL)
-        val left = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = WidgetColors.SPENT
-            typeface = medium
+    /** Se escala al ancho del widget en vez de truncarse, igual que `minimumScaleFactor` en iOS. */
+    fun stats(labels: WidgetLabels): StatsLayers {
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
             textSize = 26f
         }
-        val right = Paint(left).apply {
-            color = WidgetColors.AVAILABLE
-            textAlign = Paint.Align.RIGHT
-        }
         val minGap = 12f
-        while (left.measureText(labels.spent) + right.measureText(labels.pace) + minGap > WIDTH && left.textSize > 12f) {
-            left.textSize -= 1f
-            right.textSize = left.textSize
+        while (paint.measureText(labels.spent) + paint.measureText(labels.pace) + minGap > WIDTH && paint.textSize > 12f) {
+            paint.textSize -= 1f
         }
-        val baseline = STATS_HEIGHT / 2f - (left.ascent() + left.descent()) / 2
-        canvas.drawText(labels.spent, 0f, baseline, left)
-        canvas.drawText(labels.pace, WIDTH.toFloat(), baseline, right)
-        return bitmap
+        val baseline = STATS_HEIGHT / 2f - (paint.ascent() + paint.descent()) / 2
+        return StatsLayers(
+            spent = layer(STATS_HEIGHT) { drawText(labels.spent, 0f, baseline, paint) },
+            pace = layer(STATS_HEIGHT) {
+                drawText(labels.pace, WIDTH - paint.measureText(labels.pace), baseline, paint)
+            }
+        )
     }
 
-    private fun centeredText(canvas: Canvas, text: String, size: Float, typeface: Typeface, color: Int, top: Float, height: Float) {
+    private inline fun layer(height: Int, draw: Canvas.() -> Unit): Bitmap =
+        Bitmap.createBitmap(WIDTH, height, Bitmap.Config.ARGB_8888).also { Canvas(it).draw() }
+
+    private fun Canvas.centeredText(text: String, size: Float, typeface: Typeface, top: Float, height: Float) {
         val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            this.color = color
+            color = Color.WHITE
             this.typeface = typeface
             textAlign = Paint.Align.CENTER
             textSize = size
@@ -94,6 +99,6 @@ object GaugeRenderer {
         val maxWidth = WIDTH - 60f
         while (paint.measureText(text) > maxWidth && paint.textSize > 10f) paint.textSize -= 1f
         val baseline = top + height / 2 - (paint.ascent() + paint.descent()) / 2
-        canvas.drawText(text, CX, baseline, paint)
+        drawText(text, CX, baseline, paint)
     }
 }

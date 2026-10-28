@@ -2,11 +2,14 @@ package mx.miwidget.bait
 
 import android.appwidget.AppWidgetManager
 import android.content.ComponentName
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -19,10 +22,18 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.dynamicDarkColorScheme
+import androidx.compose.material3.dynamicLightColorScheme
+import androidx.compose.material3.lightColorScheme
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.ui.Alignment
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -45,13 +56,16 @@ import mx.miwidget.bait.data.PhoneStore
 import mx.miwidget.bait.data.UsageCache
 import mx.miwidget.bait.widget.BaitWidget
 import mx.miwidget.bait.widget.BaitWidgetReceiver
+import mx.miwidget.bait.widget.WidgetStyle
 import mx.miwidget.bait.work.RefreshWorker
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Íconos de la barra de estado legibles en modo claro y oscuro
+        enableEdgeToEdge()
         setContent {
-            MaterialTheme(colorScheme = darkColorScheme()) {
+            MaterialTheme(colorScheme = appColorScheme()) {
                 Surface(modifier = Modifier.fillMaxSize()) { SetupScreen() }
             }
         }
@@ -164,6 +178,30 @@ private fun SetupScreen() {
 
         message?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.secondary) }
 
+        var widgetStyle by remember { mutableStateOf(WidgetStyle.load(context)) }
+        Text("Estilo del widget", style = MaterialTheme.typography.titleSmall)
+        WidgetStyle.entries.forEach { option ->
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .selectable(selected = widgetStyle == option) {
+                        widgetStyle = option
+                        WidgetStyle.save(context, option)
+                        scope.launch { BaitWidget().updateAll(context) }
+                    }
+            ) {
+                RadioButton(selected = widgetStyle == option, onClick = null)
+                Text(
+                    when (option) {
+                        WidgetStyle.MATERIAL_YOU -> "Material You: colores de tu fondo de pantalla"
+                        WidgetStyle.CLASSIC -> "Clásico: negro, como en iOS"
+                    },
+                    modifier = Modifier.padding(start = 8.dp)
+                )
+            }
+        }
+
         Text(
             "También puedes agregarlo manualmente: mantén presionado un espacio vacío de tu pantalla de inicio › " +
                 "Widgets › Mi Bait Widget.",
@@ -199,3 +237,15 @@ private fun UsageCard(usage: BaitUsage) {
 }
 
 private fun mb(value: Double) = String.format(java.util.Locale.US, "%.0f MB", value)
+
+/** Colores dinámicos de Material You en Android 12+; paleta base en versiones anteriores. */
+@Composable
+private fun appColorScheme(): ColorScheme {
+    val dark = isSystemInDarkTheme()
+    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        val context = LocalContext.current
+        if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+    } else {
+        if (dark) darkColorScheme() else lightColorScheme()
+    }
+}
